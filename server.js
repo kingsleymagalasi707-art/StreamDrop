@@ -52,6 +52,20 @@ const SOCIAL_HOSTS = [
   /(^|\.)rumble\.com$/i
 ];
 function isSocialUrl(raw) { try { const u = new URL(raw); return SOCIAL_HOSTS.some(r => r.test(u.hostname)); } catch { return false; } }
+function isMediaContentType(value) {
+  const type = String(value || "").split(";", 1)[0].trim().toLowerCase();
+  return type.startsWith("video/") || type.startsWith("audio/") || type === "application/octet-stream";
+}
+async function isDirectMediaUrl(rawUrl) {
+  try {
+    const input = validateInput(rawUrl);
+    const checked = await fetchWithSafeRedirects(input.href, { method: "HEAD" });
+    if (!checked.response?.ok) return false;
+    const type = checked.response.headers.get("content-type") || "";
+    const disposition = checked.response.headers.get("content-disposition") || "";
+    return isMediaContentType(type) || /attachment/i.test(disposition);
+  } catch { return false; }
+}
 function detectSource(raw) {
   try {
     const u = new URL(raw);
@@ -697,8 +711,15 @@ app.get("/api/download/browser", downloadQuotaGuard, async (req, res) => {
     incrementActive(activeByIp, req.streamdropIp);
     if (req.streamdropUser) incrementActive(activeByUser, req.streamdropUser);
 
-    if (isSocialUrl(input.href)) startSocialDownloadJob(job, input.href, quality, format);
-    else startDownloadJob(job, input.href);
+    // Route direct media first. This lets Veyra avoid extraction entirely when
+    // the supplied URL already points at a downloadable media resource.
+    if (await isDirectMediaUrl(input.href)) {
+      startDownloadJob(job, input.href);
+    } else if (isSocialUrl(input.href)) {
+      startSocialDownloadJob(job, input.href, quality, format);
+    } else {
+      startDownloadJob(job, input.href);
+    }
 
     const status = await waitForJobCompletion(job);
     if (status !== "complete" || !job.filePath) {
