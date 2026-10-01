@@ -42,8 +42,6 @@ const TRUST_PROXY = String(process.env.TRUST_PROXY || "false").toLowerCase() ===
 
 const YTDLP_BIN = process.env.YTDLP_BIN || "yt-dlp";
 const YTDLP_TIMEOUT_MS = Number(process.env.YTDLP_TIMEOUT_MS || 180000);
-const YTDLP_JS_RUNTIME = process.env.YTDLP_JS_RUNTIME || 'deno:/usr/local/bin/deno';
-const YTDLP_REMOTE_COMPONENTS = process.env.YTDLP_REMOTE_COMPONENTS || 'ejs:github';
 const SOCIAL_HOSTS = [
   /(^|\.)youtube\.com$/i, /(^|\.)youtu\.be$/i,
   /(^|\.)tiktok\.com$/i, /(^|\.)instagram\.com$/i,
@@ -54,6 +52,28 @@ const SOCIAL_HOSTS = [
   /(^|\.)rumble\.com$/i
 ];
 function isSocialUrl(raw) { try { const u = new URL(raw); return SOCIAL_HOSTS.some(r => r.test(u.hostname)); } catch { return false; } }
+function detectSource(raw) {
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.replace(/^www\./, '').toLowerCase();
+    const rules = [
+      ['YouTube', ['youtube.com','youtu.be']],
+      ['TikTok', ['tiktok.com']],
+      ['Instagram', ['instagram.com']],
+      ['Facebook', ['facebook.com','fb.watch']],
+      ['X / Twitter', ['x.com','twitter.com']],
+      ['Reddit', ['reddit.com','redd.it']],
+      ['Vimeo', ['vimeo.com']],
+      ['Dailymotion', ['dailymotion.com']],
+      ['Twitch', ['twitch.tv']],
+      ['Rumble', ['rumble.com']]
+    ];
+    for (const [name, hosts] of rules) if (hosts.some(h => host === h || host.endsWith('.' + h))) {
+      return { provider:name, hostname:host, kind:'platform', handler:'yt-dlp' };
+    }
+    return { provider:host || 'Unknown source', hostname:host, kind:'direct-or-web', handler:'direct-first' };
+  } catch { return { provider:'Unknown source', hostname:'', kind:'invalid', handler:'none' }; }
+}
 function getYouTubeId(raw) {
   try {
     const u = new URL(raw);
@@ -88,8 +108,8 @@ function ytdlpFormat(quality, format) {
 }
 function runYtdlp(args, timeout = YTDLP_TIMEOUT_MS) {
   const safeArgs = Array.isArray(args) ? args.slice() : [];
-  if (!safeArgs.includes("--js-runtimes")) safeArgs.unshift("--js-runtimes", YTDLP_JS_RUNTIME);
-  if (!safeArgs.includes("--remote-components")) safeArgs.unshift("--remote-components", YTDLP_REMOTE_COMPONENTS);
+  if (!safeArgs.includes("--js-runtimes")) safeArgs.unshift("--js-runtimes", "deno:/usr/local/bin/deno");
+  if (!safeArgs.includes("--remote-components")) safeArgs.unshift("--remote-components", "ejs:github");
   return new Promise((resolve, reject) => {
     const child = spawn(YTDLP_BIN, safeArgs, { windowsHide: true });
     let stdout = "", stderr = "";
@@ -611,121 +631,95 @@ async function startDownloadJob(job, rawUrl) {
 
 async function startSocialDownloadJob(job, rawUrl, quality, format) {
   let child;
-  let producedFile = null;
   try {
     const input = validateInput(rawUrl);
     const outputTemplate = path.join(TEMP_DIR, `${job.id}.%(ext)s`);
-    const requestedFormat = ytdlpFormat(quality, format);
-    // Try the requested quality first, then fall back to a broadly compatible
-    // progressive/merged format. This improves reliability when a source does
-    // not expose the exact codec/container combination requested by the UI.
-    const formatCandidates = [
-      requestedFormat,
-      format === "webm"
-        ? "bv*+ba/bv*/b"
-        : "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b"
-    ].filter((v, i, a) => a.indexOf(v) === i);
-
-    job.status = "downloading";
-    job.startedAt = Date.now();
-    job.url = input.href;
-    job.expiresAt = Date.now() + JOB_RETENTION_MS;
-
-    let lastError = null;
-    for (let attempt = 0; attempt < formatCandidates.length; attempt++) {
-      if (job.status === "canceled") return;
-      const args = [
-        "--remote-components", YTDLP_REMOTE_COMPONENTS,
-        "--js-runtimes", YTDLP_JS_RUNTIME,
-        "--no-playlist", "--no-warnings", "--newline", "--progress",
-        "--retries", "3", "--fragment-retries", "3", "--retry-sleep", "1:3",
-        "--socket-timeout", "20",
-        "--format", formatCandidates[attempt],
-        "--merge-output-format", format === "webm" ? "webm" : "mp4",
-        "--output", outputTemplate,
-        input.href
-      ];
-
-      // Remove stale partial output from a previous attempt.
-      const existing = (await fsp.readdir(TEMP_DIR)).filter(n => n.startsWith(`${job.id}.`));
-      for (const name of existing) await fsp.unlink(path.join(TEMP_DIR, name)).catch(() => {});
-
-      child = spawn(YTDLP_BIN, args, { windowsHide:true });
-      job.controller = { abort: () => { try { child.kill("SIGTERM"); } catch {} } };
-      let stderr = "";
-      child.stderr.on("data", d => { stderr += d.toString(); });
-      child.stdout.on("data", d => {
-        const text = d.toString();
-        const m = text.match(/(\d+(?:\.\d+)?)%/);
-        const b = text.match(/(\d+(?:\.\d+)?)\s*(KiB|MiB|GiB)\/s/);
-        if (m) job.progress = Math.max(0, Math.min(100, Number(m[1])));
-        if (b) {
-          const units={KiB:1024,MiB:1048576,GiB:1073741824};
-          job.speed = Number(b[1])*units[b[2]];
-        }
-        job.updatedAt=Date.now();
-      });
-
-      const code = await new Promise((resolve,reject)=>{
-        child.on("error",reject);
-        child.on("close",resolve);
-      });
-      child = null;
-      job.controller = null;
-
-      if (job.status === "canceled") return;
-      if (code === 0) {
-        const files = (await fsp.readdir(TEMP_DIR)).filter(n => n.startsWith(`${job.id}.`) && !n.endsWith(".part"));
-        if (files.length) {
-          producedFile = files[0];
-          break;
-        }
-      }
-
+    const args = ["--remote-components", "ejs:github", "--js-runtimes", "deno:/usr/local/bin/deno", "--no-playlist", "--no-warnings", "--newline", "--progress", "--format", ytdlpFormat(quality, format), "--merge-output-format", format === "webm" ? "webm" : "mp4", "--output", outputTemplate, input.href];
+    job.status = "downloading"; job.startedAt = Date.now(); job.url = input.href; job.expiresAt = Date.now() + JOB_RETENTION_MS;
+    child = spawn(YTDLP_BIN, args, { windowsHide:true }); job.controller = { abort: () => { try { child.kill("SIGTERM"); } catch {} } };
+    let stderr = ""; let lastBytes = 0; let lastAt = Date.now();
+    child.stderr.on("data", d => { stderr += d.toString(); });
+    child.stdout.on("data", d => {
+      const text = d.toString();
+      const m = text.match(/(\d+(?:\.\d+)?)%/);
+      const b = text.match(/(\d+(?:\.\d+)?)\s*(KiB|MiB|GiB)\/s/);
+      if (m && job.total) job.bytes = Math.round(job.total * Number(m[1]) / 100);
+      if (b) { const units={KiB:1024,MiB:1048576,GiB:1073741824}; job.speed = Number(b[1])*units[b[2]]; }
+      job.updatedAt=Date.now();
+    });
+    const code = await new Promise((resolve,reject)=>{ child.on("error",reject); child.on("close",resolve); });
+    if (job.status === "canceled") return;
+    if (code !== 0) {
       const raw = stderr.trim().split("\n").slice(-1)[0] || `yt-dlp exited with code ${code}`;
-      lastError = raw;
       const lower = raw.toLowerCase();
       if (/bot|sign in|captcha|authentication|login|challenge/.test(lower)) {
         throw new Error("This source temporarily blocked server-side downloading. Try again later or use the source's official player.");
       }
-      // Continue to the compatibility fallback for format/codec/container
-      // errors. We do not attempt to bypass access controls.
+      throw new Error(raw);
     }
-
-    if (!producedFile) throw new Error(lastError || "The extractor could not produce a downloadable media file.");
-
-    job.fileName = producedFile.replace(`${job.id}.`, "") || `veyra-${job.id}.mp4`;
-    job.filePath = path.join(TEMP_DIR, producedFile);
-    const stat = await fsp.stat(job.filePath);
-    if (stat.size > MAX_DOWNLOAD_BYTES) {
-      await fsp.unlink(job.filePath).catch(()=>{});
-      job.filePath = null;
-      throw new Error(`The file exceeds the ${bytesToHuman(MAX_DOWNLOAD_BYTES)} per-job limit.`);
-    }
-    job.bytes=stat.size;
-    job.total=stat.size;
-    job.progress=100;
-    job.contentType = format === "webm" ? "video/webm" : "video/mp4";
-    job.status="complete";
-    job.speed=0;
-    job.updatedAt=Date.now();
-    job.expiresAt=Date.now()+JOB_RETENTION_MS;
+    const files = (await fsp.readdir(TEMP_DIR)).filter(n=>n.startsWith(`${job.id}.`) && !n.endsWith(".part"));
+    if (!files.length) throw new Error("The extractor completed but no media file was produced.");
+    job.fileName = files[0].replace(`${job.id}.`, "") || `streamdrop-${job.id}.mp4`;
+    job.filePath = path.join(TEMP_DIR, files[0]);
+    const stat = await fsp.stat(job.filePath); job.bytes=stat.size; job.total=stat.size;
+    job.contentType = format === "webm" ? "video/webm" : "video/mp4"; job.status="complete"; job.speed=0; job.updatedAt=Date.now(); job.expiresAt=Date.now()+JOB_RETENTION_MS;
   } catch (err) {
-    if (job.status !== "canceled") {
-      job.status="error";
-      job.error=err?.message || "Social video download failed.";
-      job.updatedAt=Date.now();
-    }
+    if (job.status !== "canceled") { job.status="error"; job.error=err?.message || "Social video download failed."; job.updatedAt=Date.now(); }
     if (job.filePath) await fsp.unlink(job.filePath).catch(()=>{});
-    if (!producedFile) {
-      const leftovers = (await fsp.readdir(TEMP_DIR).catch(()=>[])).filter(n => n.startsWith(`${job.id}.`));
-      for (const name of leftovers) await fsp.unlink(path.join(TEMP_DIR, name)).catch(()=>{});
-    }
-  } finally {
-    releaseActiveSlot(job);
-    cleanupJob(job.id);
-  }
+  } finally { releaseActiveSlot(job); cleanupJob(job.id); }
 }
+
+
+async function waitForJobCompletion(job, timeoutMs = DOWNLOAD_TIMEOUT_MS + 120000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (job.status === "complete" || job.status === "error" || job.status === "canceled") return job.status;
+    await new Promise(resolve => setTimeout(resolve, 350));
+  }
+  try { job.controller?.abort?.(); } catch {}
+  job.status = "error";
+  job.error = "The browser download timed out while preparing the media.";
+  return job.status;
+}
+
+// Browser-first download endpoint. The media is prepared server-side only as
+// needed, but the resulting file is handed directly to the browser as an
+// attachment. The Veyra page does not host a download/progress workflow.
+app.get("/api/download/browser", downloadQuotaGuard, async (req, res) => {
+  let job;
+  try {
+    const input = validateInput(req.query?.url);
+    const quality = String(req.query?.quality || "Best available").slice(0, 40);
+    const format = String(req.query?.format || "mp4").toLowerCase() === "webm" ? "webm" : "mp4";
+    job = createJob();
+    job.ownerIp = req.streamdropIp;
+    job.ownerUser = req.streamdropUser;
+    incrementActive(activeByIp, req.streamdropIp);
+    if (req.streamdropUser) incrementActive(activeByUser, req.streamdropUser);
+
+    if (isSocialUrl(input.href)) startSocialDownloadJob(job, input.href, quality, format);
+    else startDownloadJob(job, input.href);
+
+    const status = await waitForJobCompletion(job);
+    if (status !== "complete" || !job.filePath) {
+      return res.status(502).send(`Veyra could not prepare this browser download. ${job.error || "The source did not provide a downloadable file."}`);
+    }
+
+    const stat = await fsp.stat(job.filePath);
+    res.setHeader("Content-Type", job.contentType || "application/octet-stream");
+    res.setHeader("Content-Length", String(stat.size));
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Disposition", `attachment; filename="${job.fileName || `veyra-${job.id}.mp4`}"`);
+
+    const stream = fs.createReadStream(job.filePath);
+    stream.on("error", () => { if (!res.headersSent) res.status(500).end("Unable to read the download."); else res.destroy(); });
+    stream.on("close", () => { job.expiresAt = Date.now() + JOB_RETENTION_MS; cleanupJob(job.id); });
+    stream.pipe(res);
+  } catch (err) {
+    if (!res.headersSent) res.status(400).send(err?.message || "Unable to start browser download.");
+  }
+});
 
 app.post("/api/download/start", downloadQuotaGuard, async (req, res) => {
   try {
@@ -955,6 +949,29 @@ app.get("/api/download/:id/file", async (req, res) => {
     cleanupJob(job.id);
   } catch {
     return res.status(404).json({ error: "Download file is no longer available." });
+  }
+});
+
+app.post("/api/source-info", async (req, res) => {
+  try {
+    const input = validateInput(req.body?.url);
+    const source = detectSource(input.href);
+    const ytId = getYouTubeId(input.href);
+    res.json({
+      supported: true,
+      url: input.href,
+      provider: source.provider,
+      hostname: source.hostname,
+      kind: source.kind,
+      handler: source.handler,
+      playback: ytId ? 'youtube-embed' : 'auto',
+      downloadStrategy: source.kind === 'platform' ? 'platform-handler' : 'direct-first',
+      message: source.kind === 'platform'
+        ? `${source.provider} detected. Veyra will automatically use the compatible public-source handler.`
+        : 'Veyra will automatically inspect this URL and use direct media handling when the URL exposes a downloadable resource.'
+    });
+  } catch (err) {
+    res.status(400).json({ supported:false, error:err?.message || 'Unable to detect the source.' });
   }
 });
 

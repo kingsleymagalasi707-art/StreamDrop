@@ -19,6 +19,12 @@ async function analyzeWithBackend(raw){
     document.getElementById('validationDetails').innerHTML='';
   }
   try{
+    let sourceInfo=null;
+    try{
+      const sr=await fetch('/api/source-info',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({url:raw})});
+      sourceInfo=await sr.json();
+      if(panel && sourceInfo?.provider){ document.getElementById('validationMessage').textContent=`${sourceInfo.provider} detected. Veyra is selecting the appropriate download method automatically…`; }
+    }catch{}
     const response=await fetch('/api/analyze',{
       method:'POST',
       headers:{'Content-Type':'application/json','Accept':'application/json'},
@@ -29,8 +35,8 @@ async function analyzeWithBackend(raw){
 
     if(panel){
       panel.className='validation-panel success';
-      document.getElementById('validationTitle').textContent='Link supported';
-      document.getElementById('validationMessage').textContent=data.note||'Media detected and ready for download.';
+      document.getElementById('validationTitle').textContent=`${data.provider||sourceInfo?.provider||'Source'} detected`;
+      document.getElementById('validationMessage').textContent=data.note||sourceInfo?.message||'Media detected and ready for download.';
       document.getElementById('validationDetails').innerHTML=[
         data.type ? `${data.type}` : '',
         data.format ? `Format: ${String(data.format).toUpperCase()}` : '',
@@ -312,10 +318,8 @@ $('#qualityChooserCancel')?.addEventListener('click',closeQualityChooser);
 $('#qualityChooserModal')?.addEventListener('click',e=>{if(e.target.matches('[data-close-quality]'))closeQualityChooser();});
 $('#qualityChooserDownload')?.addEventListener('click',async()=>{
   const choice=document.querySelector('.quality-choice.active'); if(!choice||!qualityChooserUrl)return;
-  const quality=choice.dataset.choiceQuality; const d=qualityChooserData||{}; const chosenUrl=qualityChooserUrl; const chosenTitle=qualityChooserTitle; closeQualityChooser();
-  const card={id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),name:chosenTitle,format:'MP4',quality,url:chosenUrl,progress:0,state:'starting',bytes:0,totalBytes:null,speed:'Starting…',eta:'Calculating…',saved:false,saving:false,saveMessage:'',fileName:''};
-  activeDownloads.set(card.id,card); renderDownloads(); document.querySelector('#downloads')?.scrollIntoView({behavior:'smooth',block:'center'});
-  try{await startRealDownload(card.url,quality,'mp4',card);refreshUserQuota()}catch(err){card.state='error';card.error=friendlyDownloadError(err,null);card.speed='—';card.eta='—';renderDownloads();}
+  const quality=choice.dataset.choiceQuality; const chosenUrl=qualityChooserUrl; closeQualityChooser();
+  startBrowserDownload(chosenUrl, quality, 'mp4');
 });
 
 searchResults?.addEventListener('click',async e=>{
@@ -378,6 +382,16 @@ function addHistory(urlValue, formatValue, qualityValue, name='Your media'){
   localStorage.setItem('veyra-history',JSON.stringify(h.slice(0,20)));
   loadHistory();
 }
+function startBrowserDownload(urlValue, qualityValue='Best available', formatValue='mp4') {
+  const target = `/api/download/browser?url=${encodeURIComponent(urlValue)}&quality=${encodeURIComponent(qualityValue)}&format=${encodeURIComponent(formatValue)}`;
+  const popup = window.open('about:blank', '_blank', 'noopener,noreferrer');
+  if (popup) { popup.location.href = target; return true; }
+  // If the browser blocks a new tab, navigate this tab so the browser still
+  // receives the file as an attachment.
+  window.location.href = target;
+  return true;
+}
+
 const autoBrowserSaves = new Set();
 
 function saveCompletedToBrowser(d, automatic=false){
@@ -524,20 +538,7 @@ $('#batchDownloadBtn')?.addEventListener('click',startBatchDownload);
 async function startDownload(){
   const u=url.value.trim(), fmt=$('#format').value, quality=$('#quality').value;
   if(!validDirect(u)){alert('Paste a valid video or media link first.');setSource('link');url.focus();return}
-  const card=makeDownloadCard();
-  activeDownloads.set(card.id,card);
-  renderDownloads();
-  document.querySelector('#downloads').scrollIntoView({behavior:'smooth',block:'center'});
-  try{
-    await startRealDownload(u,quality,fmt,card);
-    refreshUserQuota();
-  }catch(err){
-    card.state='error';
-    card.error=friendlyDownloadError(err,null);
-    card.speed='—'; card.eta='—';
-    renderDownloads();
-    refreshUserQuota();
-  }
+  startBrowserDownload(u, quality, fmt);
 }
 $('#downloadBtn').onclick=startDownload;
 $('#downloadPanel').onclick=async(e)=>{

@@ -1,4 +1,4 @@
-# Veyra 4.8
+# Veyra
 
 A clean, mobile-friendly video downloader front end inspired by the simplicity of downloader apps.
 
@@ -81,24 +81,6 @@ The server rejects localhost/private-network destinations and limits redirects/t
 
 For broader quality detection, add dedicated parsers for public HLS/DASH manifests where permitted. Do not expose an unrestricted proxy endpoint. Add rate limiting, request logging, abuse controls, caching, and stricter egress/network policy before public deployment.
 
-
-## Veyra 4.8 downloader upgrade
-
-The downloader now uses a layered, permitted-source strategy:
-
-- direct-media URLs use the safe HTTP download path
-- supported public video-platform URLs use yt-dlp with Deno and `yt-dlp-ejs`
-- the requested quality is attempted first, followed by a compatible fallback format when codec/container selection fails
-- transient extractor/network failures receive limited retries
-- download progress is reported from the worker
-- access-control failures such as CAPTCHA, login, or bot challenges are reported without attempting to bypass them
-- no DRM, private-content, authentication, cookie, or anti-bot bypass is included
-
-The downloader cannot make a platform downloadable when that platform refuses server-side extraction. In that case Veyra should use the platform's official playback path.
-
-### Health check
-
-`GET /api/health` reports Veyra version 4.8.0 and the installed yt-dlp, Deno, and FFmpeg versions.
 
 ## Real download backend
 
