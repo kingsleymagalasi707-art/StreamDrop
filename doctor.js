@@ -14,15 +14,15 @@ const results = [
   check(process.env.YTDLP_BIN || "yt-dlp", ["--version"], "yt-dlp"),
   check(process.env.FFMPEG_BIN || "ffmpeg", ["-version"], "FFmpeg")
 ];
-const temp = process.env.STREAMDROP_TEMP_DIR || path.join(require("node:os").tmpdir(), "streamdrop");
+const temp = process.env.VEYRA_TEMP_DIR || process.env.STREAMDROP_TEMP_DIR || path.join(require("node:os").tmpdir(), "veyra");
 try { fs.mkdirSync(temp, { recursive: true }); results.push({ ok: true, label: "Temporary directory", detail: temp }); }
 catch (e) { results.push({ ok: false, label: "Temporary directory", detail: e.message }); }
 
-console.log("\nStreamDrop launch check\n=======================");
+console.log("\nVeyra launch check\n=======================");
 for (const r of results) console.log(`${r.ok ? "OK   " : "FAIL "}${r.label}: ${r.detail}`);
 const failed = results.filter(r => !r.ok);
 if (failed.length) {
-  console.log("\nFix the FAIL items before using StreamDrop in production.");
+  console.log("\nFix the FAIL items before using Veyra in production.");
   process.exitCode = 1;
 } else {
   console.log("\nAll required local checks passed. Run: npm start");

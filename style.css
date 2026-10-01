@@ -285,3 +285,42 @@ body{background:radial-gradient(circle at 15% -10%,rgba(139,124,255,.14),transpa
 .quality-card{border:1px solid var(--line);background:var(--panel);border-radius:16px;transition:.2s}.quality-card:hover,.quality-card.selected{border-color:rgba(139,124,255,.65);background:rgba(139,124,255,.11);transform:translateY(-2px)}
 @media(max-width:900px){.discover-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.search-results{grid-template-columns:1fr}.hero{padding-top:50px}}
 @media(max-width:600px){.discover-grid{grid-template-columns:1fr}.site-notice{overflow:auto;flex-wrap:nowrap;white-space:nowrap;padding-left:14px}.hero h1{font-size:48px}.hero{padding-left:14px;padding-right:14px}.url-row,.search-row{display:flex;flex-wrap:wrap}.url-row input,.search-row input{width:100%}.url-row button,.search-row button{flex:1}.search-result-actions .result-action{flex:1}.topbar nav{display:none}}
+
+
+/* Veyra 4.1 UI cleanup: reduce visual clutter and make video cards feel like a real platform. */
+.search-results{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}
+.search-result-card{display:block!important;min-height:0!important}
+.search-result-thumb{border-radius:0!important}
+.search-result-body{padding:15px 16px 16px}
+.search-result-top{display:flex;align-items:center;gap:8px;min-height:24px}
+.search-result-number{display:none}
+.search-result-domain{font-size:10px;color:var(--muted);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.search-result-body h3{font-size:15px!important;min-height:39px;margin:8px 0 6px!important}
+.search-result-body p{font-size:10px!important;color:var(--muted);margin:0 0 12px!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.search-result-actions{display:grid!important;grid-template-columns:1fr 1fr;gap:8px!important}
+.search-result-actions .result-action{min-height:42px;font-size:11px!important}
+.video-select{margin-right:0;display:inline-flex;align-items:center}
+.video-select input{accent-color:var(--accent);width:16px;height:16px}
+.search-result-thumb::after,.discover-thumb::after{content:'';position:absolute;inset:auto 0 0;height:35%;background:linear-gradient(transparent,rgba(0,0,0,.28));pointer-events:none}
+.hover-preview-video{z-index:2}
+.quality-chooser-dialog{padding:26px!important}
+.quality-chooser-dialog h2{padding-right:36px}
+.quality-choice{min-height:74px;display:flex;flex-direction:column;justify-content:center}
+.quality-unavailable{grid-column:1/-1;padding:18px;border:1px solid rgba(139,124,255,.25);background:var(--soft);border-radius:14px}
+.quality-unavailable strong{display:block;font-size:13px;color:var(--text);margin-bottom:6px}
+.quality-unavailable span{display:block;color:var(--muted);font-size:11px;line-height:1.55}
+#qualityChooserDownload:disabled{opacity:.5;cursor:not-allowed}
+.player-dialog{width:min(1000px,94vw)!important}
+.player-dialog iframe{width:100%;aspect-ratio:16/9;border:0;background:#000}
+@media(max-width:900px){.search-results{grid-template-columns:1fr}}
+@media(max-width:600px){
+  .discover{padding-top:14px}
+  .discover-head h2{font-size:28px}
+  .hero{margin-top:10px;padding-top:38px}
+  .hero h1{font-size:46px;line-height:.96}
+  .search-result-body{padding:13px}
+  .search-result-body h3{font-size:14px!important;min-height:0}
+  .search-result-actions{grid-template-columns:1fr 1fr!important}
+  .quality-chooser-dialog{padding:20px!important;border-radius:18px}
+  .quality-chooser-grid{grid-template-columns:1fr 1fr!important}
+}

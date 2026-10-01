@@ -109,7 +109,7 @@ Optional environment variables:
 ```bash
 MAX_DOWNLOAD_BYTES=1073741824
 JOB_RETENTION_MS=1800000
-STREAMDROP_TEMP_DIR=/path/to/private/temp
+VEYRA_TEMP_DIR=/path/to/private/temp
 ```
 
 The download response is streamed from the temporary file to the browser after completion.
@@ -310,3 +310,18 @@ The `/api/health` endpoint is configured as the Render health check.
 The Render free service can sleep after inactivity and has limited compute, storage, and bandwidth. Veyra also uses temporary server storage for completed downloads, so this deployment is intended for testing and early use rather than heavy production traffic. Temporary files are automatically cleaned according to `JOB_RETENTION_MS`.
 
 The service must only process media the user is authorized to download or stream. It does not intentionally bypass DRM, private access controls, or paywalls.
+
+
+### YouTube playback and downloads
+
+Veyra now uses YouTube's official embedded player when server-side extraction is challenged. This means public YouTube videos can still display their real thumbnail and play on the watch page without attempting to bypass YouTube's anti-bot controls. If yt-dlp can legally access a source, Veyra exposes its available qualities for download; otherwise the download control is disabled with a clear explanation.
+
+The Render Docker image also installs a current yt-dlp build and Deno, which yt-dlp documents as a supported JavaScript runtime for full YouTube extraction support.
+
+
+## Veyra 4.1 launch fixes
+- yt-dlp is installed with its default EJS companion package and Deno is enabled for current YouTube challenge handling.
+- Health endpoint reports yt-dlp, Deno, and FFmpeg status.
+- UI download dialog now disables Download when the source does not expose a downloadable media stream.
+- Veyra localStorage keys are namespaced to the Veyra brand.
+- Render temp directory uses VEYRA_TEMP_DIR.

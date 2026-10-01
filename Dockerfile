@@ -5,7 +5,8 @@ ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     YTDLP_BIN=/opt/yt-dlp/bin/yt-dlp \
     FFMPEG_BIN=/usr/bin/ffmpeg \
-    VEYRA_TEMP_DIR=/tmp/streamdrop \
+    DENO_DIR=/tmp/deno \
+    VEYRA_TEMP_DIR=/tmp/veyra \
     MAX_DOWNLOAD_BYTES=800000000 \
     JOB_RETENTION_MS=900000 \
     RATE_WINDOW_MS=60000 \
@@ -16,10 +17,12 @@ ENV NODE_ENV=production \
     MAX_CONCURRENT_PER_USER=3
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg python3 python3-venv ca-certificates \
+    && apt-get install -y --no-install-recommends ffmpeg python3 python3-venv ca-certificates curl unzip \
     && rm -rf /var/lib/apt/lists/* \
     && python3 -m venv /opt/yt-dlp \
-    && /opt/yt-dlp/bin/pip install --no-cache-dir --upgrade pip yt-dlp
+    && /opt/yt-dlp/bin/pip install --no-cache-dir --upgrade pip "yt-dlp[default]" yt-dlp-ejs \
+    && curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/opt/deno sh \
+    && ln -s /opt/deno/bin/deno /usr/local/bin/deno
 
 WORKDIR /app
 
@@ -27,7 +30,7 @@ COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 
 COPY . .
-RUN mkdir -p /tmp/streamdrop && chmod 700 /tmp/streamdrop
+RUN mkdir -p /tmp/veyra && chmod 700 /tmp/veyra
 
 EXPOSE 10000
 

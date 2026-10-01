@@ -24,7 +24,7 @@ const REQUEST_TIMEOUT_MS = 10000;
 const DOWNLOAD_TIMEOUT_MS = 120000;
 const MAX_DOWNLOAD_BYTES = Number(process.env.MAX_DOWNLOAD_BYTES || 2 * 1024 * 1024 * 1024);
 const JOB_RETENTION_MS = Number(process.env.JOB_RETENTION_MS || 30 * 60 * 1000);
-const TEMP_DIR = process.env.STREAMDROP_TEMP_DIR || path.join(require("node:os").tmpdir(), "streamdrop");
+const TEMP_DIR = process.env.VEYRA_TEMP_DIR || process.env.STREAMDROP_TEMP_DIR || path.join(require("node:os").tmpdir(), "veyra");
 const jobs = new Map();
 const RATE_WINDOW_MS = Number(process.env.RATE_WINDOW_MS || 60_000);
 const RATE_LIMIT_PER_IP = Number(process.env.RATE_LIMIT_PER_IP || 30);
@@ -52,14 +52,43 @@ const SOCIAL_HOSTS = [
   /(^|\.)rumble\.com$/i
 ];
 function isSocialUrl(raw) { try { const u = new URL(raw); return SOCIAL_HOSTS.some(r => r.test(u.hostname)); } catch { return false; } }
+function getYouTubeId(raw) {
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.replace(/^www\./, '').toLowerCase();
+    if (host === 'youtu.be') return u.pathname.slice(1).split('/')[0] || null;
+    if (host.endsWith('youtube.com')) {
+      if (u.pathname === '/watch') return u.searchParams.get('v');
+      const parts = u.pathname.split('/').filter(Boolean);
+      if (['shorts','embed','live'].includes(parts[0])) return parts[1] || null;
+    }
+  } catch {}
+  return null;
+}
+function youtubeEmbedUrl(id) {
+  return id ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?autoplay=1&mute=1&playsinline=1&rel=0` : null;
+}
+async function fetchYouTubeOEmbed(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const r = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`, {
+      headers: { 'User-Agent': 'Veyra/1.1' }, signal: controller.signal
+    });
+    if (!r.ok) throw new Error(`oEmbed HTTP ${r.status}`);
+    return await r.json();
+  } finally { clearTimeout(timer); }
+}
 function ytdlpFormat(quality, format) {
   const q = String(quality || "best").match(/\d+/)?.[0];
   if (q) return format === "webm" ? `bv*[height<=${q}][ext=webm]+ba[ext=webm]/b[height<=${q}][ext=webm]/bv*[height<=${q}]+ba/b[height<=${q}]` : `bv*[height<=${q}][ext=mp4]+ba[ext=m4a]/b[height<=${q}][ext=mp4]/bv*[height<=${q}]+ba/b[height<=${q}]`;
   return format === "webm" ? "bv*[ext=webm]+ba[ext=webm]/b[ext=webm]/bv*+ba/b" : "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b";
 }
 function runYtdlp(args, timeout = YTDLP_TIMEOUT_MS) {
+  const safeArgs = Array.isArray(args) ? args.slice() : [];
+  if (!safeArgs.includes("--js-runtimes")) safeArgs.unshift("--js-runtimes", "deno");
   return new Promise((resolve, reject) => {
-    const child = spawn(YTDLP_BIN, args, { windowsHide: true });
+    const child = spawn(YTDLP_BIN, safeArgs, { windowsHide: true });
     let stdout = "", stderr = "";
     const timer = setTimeout(() => { try { child.kill("SIGTERM"); } catch {} reject(new Error("The media extractor timed out.")); }, timeout);
     child.stdout.on("data", d => stdout += d); child.stderr.on("data", d => stderr += d);
@@ -81,17 +110,21 @@ const DISCOVERY_QUERIES = {
   news: 'latest news'
 };
 function normalizeVideoResult(v) {
+  const url = v.webpage_url || v.original_url || (v.id ? `https://www.youtube.com/watch?v=${v.id}` : null);
+  const ytId = url ? getYouTubeId(url) : null;
   return {
-    id: v.id || null,
-    url: v.webpage_url || v.original_url || (v.id ? `https://www.youtube.com/watch?v=${v.id}` : null),
+    id: v.id || ytId || null,
+    url,
     title: v.title || 'Video',
-    thumbnail: v.thumbnail || null,
+    thumbnail: v.thumbnail || (ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : null),
     duration: Number.isFinite(Number(v.duration)) ? Number(v.duration) : null,
     channel: v.uploader || v.channel || null,
     channelId: v.uploader_id || v.channel_id || null,
     viewCount: Number.isFinite(Number(v.view_count)) ? Number(v.view_count) : null,
     uploadDate: v.upload_date || null,
-    platform: v.extractor_key || v.extractor || 'YouTube'
+    platform: v.extractor_key || v.extractor || (ytId ? 'YouTube' : 'Video'),
+    embedUrl: ytId ? youtubeEmbedUrl(ytId) : null,
+    playback: ytId ? 'youtube-embed' : 'extractor'
   };
 }
 function ytdlpSearchArgs(query, limit=12) {
@@ -835,13 +868,42 @@ app.post("/api/analyze", async (req, res) => {
   try {
     const input = validateInput(req.body?.url);
     if (isSocialUrl(input.href)) {
-      const { stdout } = await runYtdlp(ytdlpInfoArgs(input.href));
-      const meta = JSON.parse(stdout);
+      const ytId = getYouTubeId(input.href);
+      let meta = null;
+      let extractorError = null;
+      try {
+        const { stdout } = await runYtdlp(ytdlpInfoArgs(input.href));
+        meta = JSON.parse(stdout);
+      } catch (err) { extractorError = err; }
+
+      // YouTube can provide public title/thumbnail metadata and official embedded playback
+      // even when its media extractor is challenged. Do not try to bypass that challenge.
+      if (ytId && !meta) {
+        try {
+          const o = await fetchYouTubeOEmbed(input.href);
+          meta = { title:o.title, author_name:o.author_name, thumbnail_url:o.thumbnail_url };
+        } catch (_) {}
+      }
+      if (!meta) throw extractorError || new Error('The source could not be read.');
+
       const formats = Array.isArray(meta.formats) ? meta.formats : [];
       const heights = [...new Set(formats.map(f => Number(f.height)).filter(h => Number.isFinite(h) && h > 0))].sort((a,b)=>b-a);
-      const qualities = heights.length ? heights.map(h=>`${h}p`) : ["Best available"];
-      const provider = meta.extractor_key || meta.extractor || new URL(input.href).hostname;
-      return res.json({ supported:true, provider, social:true, url:input.href, title:meta.title || "Video", thumbnail:meta.thumbnail || null, uploader:meta.uploader || meta.channel || null, duration:meta.duration || null, type:"video", format:"video", formats:["MP4","WebM"], qualities, note:`${provider} video detected. Choose a quality and download it if you are authorized to do so.` });
+      const qualities = heights.length ? heights.map(h=>`${h}p`) : [];
+      const provider = meta.extractor_key || meta.extractor || (ytId ? 'YouTube' : new URL(input.href).hostname);
+      const thumbnail = meta.thumbnail || meta.thumbnail_url || (ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : null);
+      const canDownload = Boolean(formats.length) && !extractorError;
+      const embedUrl = ytId ? youtubeEmbedUrl(ytId) : null;
+      return res.json({
+        supported:true, provider, social:true, url:input.href, title:meta.title || 'Video', thumbnail,
+        uploader:meta.uploader || meta.channel || meta.author_name || null, duration:meta.duration || null,
+        type:'video', format:'video', formats:canDownload ? ['MP4','WebM'] : [], qualities:canDownload ? qualities : [],
+        downloadAvailable:canDownload, playback:embedUrl ? 'youtube-embed' : 'extractor', embedUrl,
+        note: canDownload
+          ? `${provider} video detected. Choose a quality and download it if you are authorized to do so.`
+          : (ytId
+            ? 'YouTube is allowing official playback, but its current anti-bot checks are blocking server-side extraction. Veyra will play this video through YouTube instead of bypassing that protection.'
+            : `${provider} video detected, but this source did not expose downloadable media to Veyra.`)
+      });
     }
     const first = await fetchWithSafeRedirects(input.href, { method: "HEAD" });
     let response = first.response;
@@ -952,14 +1014,25 @@ app.get('/api/recommendations', async (req, res) => {
   }
 });
 
-app.get("/api/health", (req,res) => {
+app.get("/api/health", async (req,res) => {
+  const check = (bin, args) => new Promise(resolve => {
+    const child = spawn(bin, args, { windowsHide: true });
+    let out = "";
+    child.stdout.on("data", d => out += d);
+    child.on("error", e => resolve({ ok:false, error:e.message }));
+    child.on("close", code => resolve({ ok:code === 0, version:out.trim().split(/\r?\n/)[0] || null }));
+  });
+  const [extractor, deno, ffmpeg] = await Promise.all([
+    check(YTDLP_BIN, ["--version"]),
+    check("deno", ["--version"]),
+    check(process.env.FFMPEG_BIN || "ffmpeg", ["-version"])
+  ]);
   res.json({
-    ok: true,
-    service: "streamdrop-analyzer",
-    dependencies: {
-      extractor: YTDLP_BIN,
-      ffmpeg: process.env.FFMPEG_BIN || "ffmpeg"
-    }
+    ok: extractor.ok && deno.ok && ffmpeg.ok,
+    service: "veyra-media",
+    version: "4.1.0",
+    dependencies: { extractor, deno, ffmpeg },
+    tempDir: TEMP_DIR
   });
 });
 
