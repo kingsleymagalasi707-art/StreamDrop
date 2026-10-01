@@ -605,7 +605,7 @@ async function startSocialDownloadJob(job, rawUrl, quality, format) {
   try {
     const input = validateInput(rawUrl);
     const outputTemplate = path.join(TEMP_DIR, `${job.id}.%(ext)s`);
-    const args = ["--no-playlist", "--no-warnings", "--newline", "--progress", "--format", ytdlpFormat(quality, format), "--merge-output-format", format === "webm" ? "webm" : "mp4", "--output", outputTemplate, input.href];
+    const args = ["--js-runtimes", "deno", "--no-playlist", "--no-warnings", "--newline", "--progress", "--format", ytdlpFormat(quality, format), "--merge-output-format", format === "webm" ? "webm" : "mp4", "--output", outputTemplate, input.href];
     job.status = "downloading"; job.startedAt = Date.now(); job.url = input.href; job.expiresAt = Date.now() + JOB_RETENTION_MS;
     child = spawn(YTDLP_BIN, args, { windowsHide:true }); job.controller = { abort: () => { try { child.kill("SIGTERM"); } catch {} } };
     let stderr = ""; let lastBytes = 0; let lastAt = Date.now();

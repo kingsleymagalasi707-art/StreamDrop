@@ -271,9 +271,10 @@ async function openQualityChooser(href,title='Video'){
     qualityChooserData=d; const qs=d.qualities?.length?d.qualities:['Best available'];
     const downloadBtn = $('#qualityChooserDownload');
     if(d.downloadAvailable===false){
-      $('#qualityChooserStatus').textContent=`${d.provider||'Source'} • playback available, download unavailable`;
-      grid.innerHTML=`<div class="quality-unavailable"><strong>Download isn't available from this source right now.</strong><span>${escapeHtml(d.note||'You can still watch the video on its official player.')}</span></div>`;
-      if(downloadBtn){ downloadBtn.disabled=true; downloadBtn.textContent='Download unavailable'; }
+      const isYouTube=String(d.provider||'').toLowerCase().includes('youtube') || Boolean(d.embedUrl);
+      $('#qualityChooserStatus').textContent=isYouTube ? 'YouTube • official playback available' : `${d.provider||'Source'} • download unavailable`;
+      grid.innerHTML=`<div class="quality-unavailable source-unavailable"><strong>${isYouTube?'Watch this video on its official player':"Download is not available from this source right now."}</strong><span>${escapeHtml(d.note||'This source did not expose a downloadable media stream to Veyra.')}</span>${isYouTube?'<button type="button" class="watch-source-btn" data-watch-source>▶ Watch video</button>':''}</div>`;
+      if(downloadBtn){ downloadBtn.disabled=true; downloadBtn.textContent=isYouTube?'Download unavailable':'Download unavailable'; }
       return;
     }
     if(downloadBtn){ downloadBtn.disabled=false; downloadBtn.innerHTML='Download <span>↓</span>'; }
@@ -281,6 +282,7 @@ async function openQualityChooser(href,title='Video'){
     grid.innerHTML=qs.map((q,i)=>`<button type="button" class="quality-choice ${i===0?'active':''}" data-choice-quality="${escapeAttr(q)}"><strong>${escapeHtml(q)}</strong><span>${i===0?'Recommended':'Available from source'}</span></button>`).join('');
   }catch(err){$('#qualityChooserStatus').textContent='Could not prepare this video';grid.innerHTML=`<div class="quality-unavailable"><strong>Veyra couldn't prepare a downloadable version.</strong><span>${escapeHtml(err.message||'Try opening the video first or use another source.')}</span></div>`;const b=$('#qualityChooserDownload');if(b){b.disabled=true;b.textContent='Download unavailable';}}
 }
+document.addEventListener('click',e=>{const b=e.target.closest('[data-watch-source]');if(!b||!qualityChooserUrl)return;const href=qualityChooserUrl;closeQualityChooser();window.location.href=`/watch?url=${encodeURIComponent(href)}`;});
 function closeQualityChooser(){const m=$('#qualityChooserModal');if(m)m.hidden=true;qualityChooserUrl='';qualityChooserData=null;}
 $('#qualityChooserGrid')?.addEventListener('click',e=>{const b=e.target.closest('[data-choice-quality]');if(!b)return;document.querySelectorAll('.quality-choice').forEach(x=>x.classList.remove('active'));b.classList.add('active');});
 $('#qualityChooserCancel')?.addEventListener('click',closeQualityChooser);
