@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: streamdrop
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: HOST
+        value: "0.0.0.0"
+      - key: YTDLP_BIN
+        value: /opt/yt-dlp/bin/yt-dlp
+      - key: FFMPEG_BIN
+        value: /usr/bin/ffmpeg
+      - key: STREAMDROP_TEMP_DIR
+        value: /tmp/streamdrop
+      - key: MAX_DOWNLOAD_BYTES
+        value: "800000000"
+      - key: JOB_RETENTION_MS
+        value: "900000"
+      - key: RATE_LIMIT_PER_IP
+        value: "30"
+      - key: DOWNLOADS_PER_IP_WINDOW
+        value: "8"
+      - key: MAX_CONCURRENT_PER_IP
+        value: "2"
+      - key: MAX_CONCURRENT_PER_USER
+        value: "3"

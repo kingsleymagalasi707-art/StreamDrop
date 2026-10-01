@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>StreamDrop — Simple Video Downloader</title>
+  <meta name="description" content="A clean, fast video downloader interface for media you are authorized to download.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#"><span class="brand-mark">S</span><span>Stream<span>Drop</span></span></a>
+  <nav><a href="#download">Downloader</a><a href="#how">How it works</a><a href="#history">History</a></nav>
+  <button class="ghost" id="themeBtn" aria-label="Toggle theme">◐</button>
+</header>
+
+<div class="user-quota" data-user-quota hidden aria-live="polite"></div>
+<main>
+<section class="discover" id="home">
+  <div class="discover-head"><div><span>DISCOVER</span><h2>What do you want to watch?</h2></div><button class="discover-refresh" id="refreshDiscover" type="button">↻ Refresh</button></div>
+  <nav class="category-tabs" id="categoryTabs" aria-label="Video categories">
+    <button class="category-tab active" data-category="home">Home</button>
+    <button class="category-tab" data-category="shorts">Shorts</button>
+    <button class="category-tab" data-category="new">New</button>
+    <button class="category-tab" data-category="popular">Popular</button>
+    <button class="category-tab" data-category="music">Music</button>
+    <button class="category-tab" data-category="gaming">Gaming</button>
+    <button class="category-tab" data-category="sports">Sports</button>
+    <button class="category-tab" data-category="movies">Movies &amp; TV</button>
+    <button class="category-tab" data-category="news">News</button>
+  </nav>
+  <div class="discover-section" id="discoverSection">
+    <div class="discover-section-head"><div><span id="discoverEyebrow">POPULAR NOW</span><h3 id="discoverTitle">Popular videos</h3></div><small id="discoverNote">Suggested videos to get you started</small></div>
+    <div class="discover-grid" id="discoverGrid" aria-live="polite"></div>
+  </div>
+</section>
+
+<section class="hero" id="download">
+  <div class="eyebrow">VIDEO FIRST • BATCH READY • MOBILE FRIENDLY</div>
+  <h1>Find videos.<br><em>Download simply.</em></h1>
+  <p class="sub">Search video results or paste a direct video link. Select one or more videos, choose quality, then download.</p>
+
+  <div class="download-card">
+    <div class="source-tabs" role="tablist" aria-label="Choose a source">
+      <button class="source-tab active" id="linkTab" type="button" data-source="link">🔗 Paste link</button>
+      <button class="source-tab" id="searchTab" type="button" data-source="search">🔎 Search</button>
+    </div>
+    <div id="linkSource" class="source-panel active">
+      <div class="url-row">
+        <input id="url" type="url" placeholder="Paste your video link here…" autocomplete="off">
+        <button class="paste" id="pasteBtn">Paste</button>
+        <button class="primary" id="analyzeBtn">Continue <span>→</span></button>
+      </div>
+      <div class="hint">Tip: copy the media link first, then paste it here. Use links you own or have permission to download.</div>
+    </div>
+    <div id="searchSource" class="source-panel">
+      <div class="search-row">
+        <input id="searchInput" type="search" placeholder="What do you want to find?" autocomplete="off">
+        <button class="primary" id="searchBtn">Search videos <span>⌕</span></button>
+      </div>
+      <div class="search-suggestions" aria-label="Video search suggestions">
+        <span>Try:</span>
+        <button type="button" data-suggestion="music videos">Music videos</button>
+        <button type="button" data-suggestion="coding tutorials">Coding tutorials</button>
+        <button type="button" data-suggestion="gaming highlights">Gaming highlights</button>
+        <button type="button" data-suggestion="travel videos">Travel videos</button>
+      </div>
+      <div class="search-help">Video results only. Select one or more authorized video links, then use the batch bar to queue them together.</div>
+      <div class="batch-toolbar" id="batchToolbar" hidden>
+        <div><strong id="selectedCount">0 selected</strong><small>Select videos to download together.</small></div>
+        <div class="batch-toolbar-actions">
+          <button class="result-action" id="selectAllVideos" type="button">Select all</button>
+          <button class="result-action" id="clearSelectedVideos" type="button">Clear</button>
+          <button class="result-action primary-mini" id="batchDownloadBtn" type="button">Download selected ↓</button>
+        </div>
+      </div>
+      <div class="search-results" id="searchResults" hidden aria-live="polite"></div>
+    </div>
+  </div>
+
+  <div class="result" id="result" hidden>
+        <div class="media-meta" id="mediaMeta" hidden>
+          <div><span>Type</span><strong id="detectedType">—</strong></div>
+          <div><span>File size</span><strong id="detectedSize">—</strong></div>
+          <div><span>Formats</span><strong id="detectedFormats">—</strong></div>
+        </div>
+
+    <div class="preview">
+      <div class="thumb" id="thumb"><span>▶</span></div>
+      <div class="meta">
+        <span class="badge">READY TO DOWNLOAD</span>
+        <h3 id="videoTitle">Your video</h3>
+        <p id="videoMeta">Direct media URL detected</p>
+      </div>
+    </div>
+    <div class="options">
+      <label>Format<select id="format"><option value="mp4">MP4 Video</option><option value="webm">WebM Video</option></select></label>
+      <div class="quality-picker">
+        <span>Quality</span>
+        <div class="quality-grid" role="group" aria-label="Video quality">
+          <button type="button" class="quality-chip active" data-quality="Original">Original</button>
+          <button type="button" class="quality-chip" data-quality="1080p">1080p</button>
+          <button type="button" class="quality-chip" data-quality="720p">720p</button>
+          <button type="button" class="quality-chip" data-quality="480p">480p</button>
+          <button type="button" class="quality-chip" data-quality="360p">360p</button>
+        </div>
+        <select id="quality" class="quality-native" aria-hidden="true" tabindex="-1"><option>Original</option><option>1080p</option><option>720p</option><option>480p</option><option>360p</option></select>
+      </div>
+      <button class="download desktop-download" id="downloadBtn">Download to browser <span>↓</span></button>
+    </div>
+    <div class="sticky-download" id="stickyDownload">
+      <div><strong id="stickyQuality">Original</strong><small id="stickyFormat">MP4 Video</small></div>
+      <button class="download" id="stickyDownloadBtn">Save to browser <span>↓</span></button>
+    </div>
+  </div>
+</section>
+
+<section class="features">
+  <article><div class="icon">⚡</div><h3>Fast video flow</h3><p>Search video results or paste a direct media link, then download with a clear action.</p></article>
+  <article><div class="icon">☑</div><h3>Batch selection</h3><p>Select several videos and queue them together without repeating the same steps.</p></article>
+  <article><div class="icon">↓</div><h3>Friendly downloads</h3><p>Large download actions, live progress, browser saving, and recent history.</p></article>
+</section>
+
+<section class="how" id="how">
+  <div class="section-head"><span>HOW IT WORKS</span><h2>Three simple steps.</h2></div>
+  <div class="steps">
+    <div><b>01</b><h3>Find videos</h3><p>Search video-focused results or insert a direct media URL you are authorized to download.</p></div>
+    <div><b>02</b><h3>Select & choose</h3><p>Select one or multiple videos, then choose the available video quality and format.</p></div>
+    <div><b>03</b><h3>Download</h3><p>Start the queue and watch each file move through live download progress.</p></div>
+  </div>
+</section>
+
+<section class="downloads" id="downloads">
+  <div class="section-head">
+    <span>DOWNLOAD MANAGER</span>
+    <h2>Your download queue.</h2>
+  </div>
+  <div class="manager-toolbar" id="managerToolbar">
+    <div class="manager-summary"><strong id="managerCount">0 items</strong><span id="managerSummary">Ready for your next download</span></div>
+    <div class="manager-actions">
+      <button class="manager-filter active" type="button" data-manager-filter="all">All</button>
+      <button class="manager-filter" type="button" data-manager-filter="downloading">Active</button>
+      <button class="manager-filter" type="button" data-manager-filter="complete">Completed</button>
+      <button class="manager-clear" id="clearCompletedBtn" type="button">Clear completed</button>
+      <button class="manager-clear" id="cancelAllBtn" type="button">Cancel active</button>
+    </div>
+  </div>
+  <div id="downloadPanel" class="download-panel">
+    <div class="download-empty">Nothing is downloading yet. Start a download and its live browser-save progress will appear here.</div>
+  </div>
+</section>
+
+<section class="history" id="history">
+  <div class="section-head inline"><div><span>RECENT</span><h2>Download history.</h2></div><button class="clear" id="clearBtn">Clear</button></div>
+  <div id="historyList" class="history-list"><div class="empty">No downloads yet.</div></div>
+</section>
+<div class="player-modal" id="playerModal" hidden aria-hidden="true">
+  <div class="player-backdrop" data-close-player></div>
+  <section class="player-dialog" role="dialog" aria-modal="true" aria-label="Video player">
+    <button class="player-close" type="button" data-close-player aria-label="Close player">×</button>
+    <video id="streamPlayer" controls playsinline preload="metadata"></video>
+    <div class="player-info"><strong id="playerTitle">Video</strong><span id="playerQuality">Auto</span></div>
+  </section>
+</div>
+
+</main>
+
+<nav class="mobile-bottom-nav" aria-label="Mobile navigation">
+  <a href="#home"><span>⌂</span><small>Home</small></a>
+  <a href="#download"><span>⌕</span><small>Search</small></a>
+  <a href="#downloads"><span>↓</span><small>Downloads</small><b id="mobileDownloadBadge" hidden>0</b></a>
+  <a href="#history"><span>◷</span><small>History</small></a>
+</nav>
+
+<footer><div class="brand"><span class="brand-mark">S</span><span>Stream<span>Drop</span></span></div><p>Built for authorized media downloads.</p></footer>
+<script src="app.js"></script>
+
+  <div class="walkthrough" id="streamdropWalkthrough" aria-hidden="true">
+    <div class="walkthrough-backdrop" data-walkthrough-skip></div>
+    <section class="walkthrough-card" role="dialog" aria-modal="true" aria-labelledby="walkthroughTitle">
+      <div class="walkthrough-top">
+        <span class="walkthrough-badge">Quick guide</span>
+        <button class="walkthrough-skip" type="button" data-walkthrough-skip>Skip</button>
+      </div>
+      <div class="walkthrough-icon" id="walkthroughIcon">🔗</div>
+      <p class="walkthrough-step" id="walkthroughStep">Step 1 of 3</p>
+      <h2 id="walkthroughTitle">Paste your video link</h2>
+      <p id="walkthroughText">Paste a link you’re authorized to download into the link box, then tap Analyze.</p>
+      <div class="walkthrough-dots" aria-label="Walkthrough progress">
+        <span class="active"></span><span></span><span></span>
+      </div>
+      <div class="walkthrough-actions">
+        <button class="walkthrough-next" id="walkthroughNext" type="button">Next</button>
+      </div>
+    </section>
+  </div>
+
+</body>
+</html>
