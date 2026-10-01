@@ -100,6 +100,49 @@ function detectSource(raw) {
     return { provider:host || 'Unknown source', hostname:host, kind:'direct-or-web', handler:'direct-first' };
   } catch { return { provider:'Unknown source', hostname:'', kind:'invalid', handler:'none' }; }
 }
+function classifyDownloadError(errOrText, context = {}) {
+  const raw = String(errOrText?.message || errOrText || "");
+  const text = raw.toLowerCase();
+  const status = Number(context.status || 0);
+  if (/sign in|login required|authentication required|confirm.*not a bot|not a bot|captcha|challenge|bot detection|automated access|cookies/.test(text)) {
+    return { code:"SOURCE_PROTECTION", kind:"source-protection", retryable:false,
+      userMessage:"The source is requiring verification or restricting automated access. Veyra will not bypass that protection.",
+      action:"Use the source's official player or an authorized download option." };
+  }
+  if (status === 401 || status === 403 || /http 401|http 403|forbidden|unauthorized/.test(text)) {
+    return { code:"ACCESS_DENIED", kind:"access-denied", retryable:false,
+      userMessage:"The source denied Veyra's request.", action:"Check that the media is publicly accessible and that downloading is permitted." };
+  }
+  if (status === 404 || /http 404|not found/.test(text)) {
+    return { code:"NOT_FOUND", kind:"not-found", retryable:false,
+      userMessage:"The requested media could not be found.", action:"Check the URL and make sure the media still exists." };
+  }
+  if ([408,425,429,500,502,503,504].includes(status) || /timed out|timeout|temporarily unavailable|econnreset|eai_again|socket hang up|network/.test(text)) {
+    return { code:"TRANSIENT_SOURCE_ERROR", kind:"transient", retryable:true,
+      userMessage:"The source did not respond reliably.", action:"Veyra can retry this request after a short delay." };
+  }
+  if (/too many redirects|redirect/.test(text)) {
+    return { code:"REDIRECT_ERROR", kind:"redirect", retryable:false,
+      userMessage:"The source's redirect chain could not be followed safely.", action:"Try the final public media URL instead." };
+  }
+  if (/exceeds|too large|maximum/.test(text)) {
+    return { code:"SIZE_LIMIT", kind:"size-limit", retryable:false,
+      userMessage:"The media is larger than Veyra's configured download limit.", action:"Use a smaller/shorter authorized media file." };
+  }
+  if (/unsupported|did not provide|not a direct media|no media|no downloadable/.test(text)) {
+    return { code:"NO_MEDIA", kind:"no-media", retryable:false,
+      userMessage:"Veyra could not find a downloadable media resource at this URL.", action:"Try the source's official download option or a direct media URL." };
+  }
+  return { code:"DOWNLOAD_FAILED", kind:"unknown", retryable:false,
+    userMessage:"Veyra could not prepare the download.", action:"Check the URL and try again." };
+}
+
+function publicDiagnostic(info = {}) {
+  const classification = classifyDownloadError(info.error || "", info);
+  return { ...classification, provider: info.provider || null, hostname: info.hostname || null,
+    status: Number(info.status || 0) || null };
+}
+
 function getYouTubeId(raw) {
   try {
     const u = new URL(raw);
@@ -547,11 +590,22 @@ async function startDownloadJob(job, rawUrl) {
   let output;
   try {
     const input = validateInput(rawUrl);
-    const checked = await fetchWithSafeRedirects(input.href, { method: "HEAD" });
+    let checked = await fetchWithSafeRedirects(input.href, { method: "HEAD" });
     let finalUrl = checked.url;
     let response = checked.response;
 
-    if (!response.ok) throw new Error(`Source returned HTTP ${response.status}.`);
+    // Some CDNs reject HEAD even though normal GET works. Probe with a tiny
+    // ranged GET before declaring a direct URL unusable.
+    if (!response.ok || response.status === 405 || response.status === 501) {
+      checked = await fetchWithSafeRedirects(input.href, { method: "GET" });
+      finalUrl = checked.url;
+      response = checked.response;
+      try { await response.body?.cancel(); } catch {}
+    }
+    if (!response.ok) {
+      const err = new Error(`Source returned HTTP ${response.status}.`);
+      err.status = response.status; throw err;
+    }
 
     const contentType = response.headers.get("content-type") || "";
     const length = Number(response.headers.get("content-length"));
@@ -727,6 +781,81 @@ app.get('/api/download/strategy', async (req, res) => {
 // Browser-first download endpoint. The media is prepared server-side only as
 // needed, but the resulting file is handed directly to the browser as an
 // attachment. The Veyra page does not host a download/progress workflow.
+
+function browserResolveFormat(quality, format) {
+  const q = String(quality || "Best available").match(/\d+/)?.[0];
+  const ext = String(format || "mp4").toLowerCase() === "webm" ? "webm" : "mp4";
+  if (q) {
+    return `b[height<=${q}][ext=${ext}]/b[height<=${q}]/b`;
+  }
+  return `b[ext=${ext}]/b`;
+}
+
+// Resolve a public media URL without making Veyra download the media itself.
+// The browser can then request the resolved CDN/media URL directly. If the
+// source does not expose a usable direct URL, the normal browser endpoint
+// remains available as a server-side fallback.
+app.get("/api/download/resolve", downloadQuotaGuard, async (req, res) => {
+  try {
+    const input = validateInput(req.query?.url);
+    const quality = String(req.query?.quality || "Best available").slice(0, 40);
+    const format = String(req.query?.format || "mp4").toLowerCase() === "webm" ? "webm" : "mp4";
+
+    if (await isDirectMediaUrl(input.href)) {
+      return res.json({
+        ok: true,
+        mode: "direct",
+        sourceUrl: input.href,
+        mediaUrl: input.href,
+        browserDownload: true,
+        provider: detectSource(input.href).provider
+      });
+    }
+
+    if (!isSocialUrl(input.href)) {
+      return res.status(422).json({
+        ok: false, code: "NO_DIRECT_MEDIA",
+        error: "This source did not expose a direct media resource."
+      });
+    }
+
+    const args = [
+      "--get-url", "--no-playlist", "--no-warnings",
+      "--format", browserResolveFormat(quality, format),
+      input.href
+    ];
+    let stdout;
+    try {
+      ({ stdout } = await runYtdlp(args, Math.min(YTDLP_TIMEOUT_MS, 120000)));
+    } catch (err) {
+      const d = publicDiagnostic({ error: err?.message, provider: detectSource(input.href).provider });
+      return res.status(d.retryable ? 503 : 422).json({ ok:false, error:d.userMessage, code:d.code, diagnostic:d });
+    }
+
+    const urls = stdout.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+    const mediaUrl = urls.find(x => /^https?:\/\//i.test(x));
+    if (!mediaUrl) {
+      const d = publicDiagnostic({ error:"The extractor did not return a media URL." });
+      return res.status(422).json({ ok:false, error:d.userMessage, code:d.code, diagnostic:d });
+    }
+
+    // Never return credentials/cookies. The URL is the public media URL that
+    // the permitted extractor supplied for this request.
+    return res.json({
+      ok:true,
+      mode:"resolved-media",
+      sourceUrl:input.href,
+      mediaUrl,
+      browserDownload:true,
+      provider:detectSource(input.href).provider,
+      note:"The browser will request the resolved media resource directly."
+    });
+  } catch (err) {
+    const d = publicDiagnostic({ error: err?.message });
+    return res.status(400).json({ ok:false, error:d.userMessage, code:d.code, diagnostic:d });
+  }
+});
+
 app.get("/api/download/browser", downloadQuotaGuard, async (req, res) => {
   let job;
   try {
@@ -751,7 +880,9 @@ app.get("/api/download/browser", downloadQuotaGuard, async (req, res) => {
 
     const status = await waitForJobCompletion(job);
     if (status !== "complete" || !job.filePath) {
-      return res.status(502).send(`Veyra could not prepare this browser download. ${job.error || "The source did not provide a downloadable file."}`);
+      const diagnostic = publicDiagnostic({ error: job.error || "The source did not provide a downloadable file." });
+      logEvent("download_failed", { code: diagnostic.code, kind: diagnostic.kind, provider: job.provider || null, jobId: job.id });
+      return res.status(502).json({ ok:false, error: diagnostic.userMessage, code:diagnostic.code, diagnostic });
     }
 
     const stat = await fsp.stat(job.filePath);
@@ -998,6 +1129,50 @@ app.get("/api/download/:id/file", async (req, res) => {
     cleanupJob(job.id);
   } catch {
     return res.status(404).json({ error: "Download file is no longer available." });
+  }
+});
+
+app.post("/api/download/diagnose", async (req, res) => {
+  try {
+    const input = validateInput(req.body?.url);
+    const source = detectSource(input.href);
+    const result = { ok:true, url:input.href, provider:source.provider, hostname:source.hostname,
+      kind:source.kind, handler:source.handler, route:null, checks:[], diagnostic:null };
+
+    if (await isDirectMediaUrl(input.href)) {
+      result.route = "browser-direct";
+      result.checks.push({name:"direct-media", status:"pass", detail:"The URL exposes a public media resource."});
+      result.diagnostic = { code:"READY", kind:"ready", retryable:false, userMessage:"The URL is ready for direct browser delivery.", action:"Download can proceed." };
+      return res.json(result);
+    }
+    if (source.kind === "platform") {
+      result.route = "platform-extractor";
+      result.checks.push({name:"direct-media", status:"not-applicable", detail:"This URL is a platform page rather than a direct media resource."});
+      try {
+        const { stdout } = await runYtdlp(ytdlpInfoArgs(input.href), Math.min(YTDLP_TIMEOUT_MS, 90000));
+        const meta = JSON.parse(stdout);
+        const formats = Array.isArray(meta.formats) ? meta.formats.filter(f => f && (f.url || f.format_id)) : [];
+        if (formats.length) {
+          result.checks.push({name:"public-extractor", status:"pass", detail:`The public extractor exposed ${formats.length} media format(s).`});
+          result.diagnostic = { code:"READY", kind:"ready", retryable:false, userMessage:"A downloadable media representation was exposed to Veyra.", action:"Download can proceed." };
+        } else {
+          result.checks.push({name:"public-extractor", status:"fail", detail:"The extractor returned metadata but no downloadable formats."});
+          result.diagnostic = { code:"NO_MEDIA", kind:"no-media", retryable:false, userMessage:"The source did not expose a downloadable media resource.", action:"Use the official player or an authorized download option." };
+        }
+      } catch (err) {
+        const d = publicDiagnostic({error:err?.message, provider:source.provider, hostname:source.hostname});
+        result.checks.push({name:"public-extractor", status:"fail", detail:d.userMessage});
+        result.diagnostic = d;
+      }
+      return res.json(result);
+    }
+    result.route = "source-page";
+    result.checks.push({name:"direct-media", status:"fail", detail:"The URL did not identify itself as a downloadable media resource."});
+    result.diagnostic = { code:"NO_MEDIA", kind:"no-media", retryable:false, userMessage:"This URL appears to be a webpage rather than a direct media resource.", action:"Use a direct media URL or the source's authorized download option." };
+    res.json(result);
+  } catch (err) {
+    const d = publicDiagnostic({error:err?.message});
+    res.status(400).json({ok:false, error:d.userMessage, code:d.code, diagnostic:d});
   }
 });
 

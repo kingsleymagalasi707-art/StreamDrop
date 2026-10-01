@@ -75,11 +75,21 @@ async function analyzeWithBackend(raw){
     result.scrollIntoView({behavior:'smooth',block:'center'});
     return data;
   }catch(err){
+    let diagnostic=null;
+    try{
+      const dr=await fetch('/api/download/diagnose',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({url:raw})});
+      const dd=await dr.json();
+      diagnostic=dd?.diagnostic||null;
+    }catch{}
     if(panel){
       panel.className='validation-panel error';
-      document.getElementById('validationTitle').textContent='Link not supported';
-      document.getElementById('validationMessage').textContent=err.message||'Unable to analyze this URL.';
-      document.getElementById('validationDetails').innerHTML='';
+      document.getElementById('validationTitle').textContent=diagnostic?.code==='SOURCE_PROTECTION'?'Source verification required':(diagnostic?.code==='NO_MEDIA'?'No downloadable media found':'Veyra could not prepare this source');
+      document.getElementById('validationMessage').textContent=diagnostic?.userMessage||err.message||'Unable to analyze this URL.';
+      document.getElementById('validationDetails').innerHTML=[
+        diagnostic?.action||'',
+        diagnostic?.retryable?'This problem may be temporary.':'',
+        diagnostic?.code?`Code: ${diagnostic.code}`:''
+      ].filter(Boolean).map(x=>`<span class="validation-chip">${escapeHtml(x)}</span>`).join('');
     }
     result.hidden=true;
     return null;
@@ -309,7 +319,13 @@ async function openQualityChooser(href,title='Video'){
     if(downloadBtn){ downloadBtn.disabled=false; downloadBtn.innerHTML='Download <span>↓</span>'; }
     $('#qualityChooserStatus').textContent=`${d.provider||'Source'} • ${qs.length} quality option${qs.length===1?'':'s'}`;
     grid.innerHTML=qs.map((q,i)=>`<button type="button" class="quality-choice ${i===0?'active':''}" data-choice-quality="${escapeAttr(q)}"><strong>${escapeHtml(q)}</strong><span>${i===0?'Recommended':'Available from source'}</span></button>`).join('');
-  }catch(err){$('#qualityChooserStatus').textContent='Could not prepare this video';grid.innerHTML=`<div class="quality-unavailable"><strong>Veyra couldn't prepare a downloadable version.</strong><span>${escapeHtml(err.message||'Try opening the video first or use another source.')}</span></div>`;const b=$('#qualityChooserDownload');if(b){b.disabled=true;b.textContent='Download unavailable';}}
+  }catch(err){
+    let diagnostic=null;
+    try{const dr=await fetch('/api/download/diagnose',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({url:href})});const dd=await dr.json();diagnostic=dd?.diagnostic||null;}catch{}
+    $('#qualityChooserStatus').textContent=diagnostic?.code==='SOURCE_PROTECTION'?'Source verification required':'Could not prepare this video';
+    grid.innerHTML=`<div class="quality-unavailable"><strong>${escapeHtml(diagnostic?.userMessage||"Veyra couldn't prepare a downloadable version.")}</strong><span>${escapeHtml(diagnostic?.action||err.message||'Try the official player or another authorized source.')}</span>${diagnostic?.code?`<small>Diagnostic: ${escapeHtml(diagnostic.code)}</small>`:''}</div>`;
+    const b=$('#qualityChooserDownload');if(b){b.disabled=true;b.textContent='Download unavailable';}
+  }
 }
 document.addEventListener('click',e=>{const b=e.target.closest('[data-watch-source]');if(!b||!qualityChooserUrl)return;const href=qualityChooserUrl;closeQualityChooser();window.location.href=`/watch?url=${encodeURIComponent(href)}`;});
 function closeQualityChooser(){const m=$('#qualityChooserModal');if(m)m.hidden=true;qualityChooserUrl='';qualityChooserData=null;}
@@ -382,12 +398,28 @@ function addHistory(urlValue, formatValue, qualityValue, name='Your media'){
   localStorage.setItem('veyra-history',JSON.stringify(h.slice(0,20)));
   loadHistory();
 }
-function startBrowserDownload(urlValue, qualityValue='Best available', formatValue='mp4') {
+async function startBrowserDownload(urlValue, qualityValue='Best available', formatValue='mp4') {
+  // First ask Veyra only to resolve a permitted media URL. When the source
+  // exposes one, the browser performs the actual media request/download.
+  try {
+    const qs = new URLSearchParams({url:urlValue, quality:qualityValue, format:formatValue});
+    const r = await fetch(`/api/download/resolve?${qs.toString()}`, {headers:{'Accept':'application/json'}});
+    const d = await r.json().catch(()=>null);
+    if (r.ok && d?.ok && d.mediaUrl) {
+      const popup = window.open('about:blank', '_blank', 'noopener,noreferrer');
+      if (popup) { popup.location.href = d.mediaUrl; return true; }
+      window.location.href = d.mediaUrl;
+      return true;
+    }
+  } catch (_) {}
+
+  // If the source cannot expose a browser-usable media URL, fall back to
+  // Veyra's existing attachment endpoint. This preserves compatibility with
+  // sources that require server-side preparation without pretending the
+  // browser can bypass source protections.
   const target = `/api/download/browser?url=${encodeURIComponent(urlValue)}&quality=${encodeURIComponent(qualityValue)}&format=${encodeURIComponent(formatValue)}`;
   const popup = window.open('about:blank', '_blank', 'noopener,noreferrer');
   if (popup) { popup.location.href = target; return true; }
-  // If the browser blocks a new tab, navigate this tab so the browser still
-  // receives the file as an attachment.
   window.location.href = target;
   return true;
 }
