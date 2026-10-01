@@ -3,8 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>StreamDrop — Simple Video Downloader</title>
-  <meta name="description" content="A clean, fast video downloader interface for media you are authorized to download.">
+  <title>Veyra — Discover, Watch & Download Videos</title>
+  <meta name="description" content="Veyra is a video discovery website for finding, watching, and downloading videos you are authorized to use.">
+  <meta name="robots" content="index,follow,max-image-preview:large">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Veyra — Discover, Watch & Download Videos">
+  <meta property="og:description" content="Discover videos, watch them in a dedicated player, and download authorized media in your preferred quality.">
+  <meta name="theme-color" content="#0b0d12">
+  <link rel="manifest" href="/site.webmanifest">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -12,15 +18,16 @@
 </head>
 <body>
 <header class="topbar">
-  <a class="brand" href="#"><span class="brand-mark">S</span><span>Stream<span>Drop</span></span></a>
-  <nav><a href="#download">Downloader</a><a href="#how">How it works</a><a href="#history">History</a></nav>
+  <a class="brand" href="#"><span class="brand-mark">S</span><span>Vey<span>ra</span></span></a>
+  <nav><a href="#download">Downloads</a><a href="#how">How it works</a><a href="#history">History</a></nav>
   <button class="ghost" id="themeBtn" aria-label="Toggle theme">◐</button>
 </header>
 
 <div class="user-quota" data-user-quota hidden aria-live="polite"></div>
+<div class="site-notice"><span>● Live discovery</span><span>▶ Watch pages</span><span>↓ Simple quality downloads</span><span>✓ Authorized media only</span></div>
 <main>
 <section class="discover" id="home">
-  <div class="discover-head"><div><span>DISCOVER</span><h2>What do you want to watch?</h2></div><button class="discover-refresh" id="refreshDiscover" type="button">↻ Refresh</button></div>
+  <div class="discover-head"><div><span>DISCOVER</span><h2>Discover something worth watching</h2></div><button class="discover-refresh" id="refreshDiscover" type="button">↻ Refresh</button></div>
   <nav class="category-tabs" id="categoryTabs" aria-label="Video categories">
     <button class="category-tab active" data-category="home">Home</button>
     <button class="category-tab" data-category="shorts">Shorts</button>
@@ -40,8 +47,8 @@
 
 <section class="hero" id="download">
   <div class="eyebrow">VIDEO FIRST • BATCH READY • MOBILE FRIENDLY</div>
-  <h1>Find videos.<br><em>Download simply.</em></h1>
-  <p class="sub">Search video results or paste a direct video link. Select one or more videos, choose quality, then download.</p>
+  <h1>Discover videos.<br><em>Watch. Save. Go.</em></h1>
+  <p class="sub">Search real video results, open a dedicated watch page, or download an authorized video in a few taps.</p>
 
   <div class="download-card">
     <div class="source-tabs" role="tablist" aria-label="Choose a source">
@@ -157,6 +164,17 @@
   <div class="section-head inline"><div><span>RECENT</span><h2>Download history.</h2></div><button class="clear" id="clearBtn">Clear</button></div>
   <div id="historyList" class="history-list"><div class="empty">No downloads yet.</div></div>
 </section>
+<div class="quality-chooser-modal" id="qualityChooserModal" hidden aria-hidden="true">
+  <div class="quality-chooser-backdrop" data-close-quality></div>
+  <section class="quality-chooser-dialog" role="dialog" aria-modal="true" aria-labelledby="qualityChooserTitle">
+    <button class="quality-chooser-close" type="button" data-close-quality aria-label="Close">×</button>
+    <span class="eyebrow">DOWNLOAD</span>
+    <h2 id="qualityChooserTitle">Choose video quality</h2>
+    <p id="qualityChooserStatus">Checking available qualities…</p>
+    <div class="quality-chooser-grid" id="qualityChooserGrid"></div>
+    <div class="quality-chooser-actions"><button class="ghost" id="qualityChooserCancel" type="button">Cancel</button><button class="download" id="qualityChooserDownload" type="button">Download <span>↓</span></button></div>
+  </section>
+</div>
 <div class="player-modal" id="playerModal" hidden aria-hidden="true">
   <div class="player-backdrop" data-close-player></div>
   <section class="player-dialog" role="dialog" aria-modal="true" aria-label="Video player">
@@ -175,7 +193,7 @@
   <a href="#history"><span>◷</span><small>History</small></a>
 </nav>
 
-<footer><div class="brand"><span class="brand-mark">S</span><span>Stream<span>Drop</span></span></div><p>Built for authorized media downloads.</p></footer>
+<footer><div class="brand"><span class="brand-mark">S</span><span>Vey<span>ra</span></span></div><p>Built for authorized media downloads.</p></footer>
 <script src="app.js"></script>
 
   <div class="walkthrough" id="streamdropWalkthrough" aria-hidden="true">

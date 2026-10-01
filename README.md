@@ -1,4 +1,4 @@
-# StreamDrop
+# Veyra
 
 A clean, mobile-friendly video downloader front end inspired by the simplicity of downloader apps.
 
@@ -43,14 +43,14 @@ The API should validate authorization and source availability before processing.
 
 
 ## Search result previews
-The Search tab now shows preview cards when the browser can reach the DuckDuckGo Instant Answer endpoint. Cards can display a thumbnail, title, source domain, snippet, and actions to Copy link, Open, or Use link in StreamDrop. The selected Google/Bing/DuckDuckGo search also opens in a new tab.
+The Search tab now shows preview cards when the browser can reach the DuckDuckGo Instant Answer endpoint. Cards can display a thumbnail, title, source domain, snippet, and actions to Copy link, Open, or Use link in Veyra. The selected Google/Bing/DuckDuckGo search also opens in a new tab.
 
 For a production site with comprehensive web results, replace the lightweight preview request with a licensed search API/backend endpoint (for example, your own `/api/search`) rather than scraping search-engine result pages.
 
 
 ## Backend URL analysis
 
-StreamDrop now includes an Express backend at `server.js`.
+Veyra now includes an Express backend at `server.js`.
 
 ### Run locally
 
@@ -125,7 +125,7 @@ The backend now enforces several layers of protection:
 
 - Per-IP request rate limit
 - Per-IP download-start quota per rate window
-- Optional per-user download-start quota using the `X-StreamDrop-User-Id` header
+- Optional per-user download-start quota using the `X-Veyra-User-Id` header
 - Per-IP concurrent download limit
 - Per-user concurrent download limit
 - JSON request-body size limit
@@ -153,7 +153,7 @@ For deployments behind a reverse proxy, configure the proxy's trusted-client/IP 
 
 ### Verified per-user quotas
 
-Per-user quotas no longer use `X-StreamDrop-User-Id` from the browser. A user counts toward a personal quota only when the application has verified authentication and attached a stable subject as:
+Per-user quotas no longer use `X-Veyra-User-Id` from the browser. A user counts toward a personal quota only when the application has verified authentication and attached a stable subject as:
 
 ```js
 req.auth = { userId: verifiedSubject };
@@ -163,9 +163,9 @@ Integrate your existing JWT/session verifier in the authentication middleware be
 
 Download-start responses expose:
 
-- `X-StreamDrop-Quota-Limit`
-- `X-StreamDrop-Quota-Remaining`
-- `X-StreamDrop-Quota-Reset` (Unix timestamp in seconds)
+- `X-Veyra-Quota-Limit`
+- `X-Veyra-Quota-Remaining`
+- `X-Veyra-Quota-Reset` (Unix timestamp in seconds)
 
 The frontend reads these headers and displays the remaining authenticated-user quota. `GET /api/quota` also provides the current quota for authenticated users and reports `authenticated: false` when no verified identity is present.
 
@@ -178,14 +178,14 @@ For deployments behind a trusted reverse proxy/load balancer, set:
 TRUST_PROXY=true
 ```
 
-When enabled, StreamDrop uses the first address in `X-Forwarded-For` for IP quotas and rate limits. Leave it disabled when clients can reach StreamDrop directly; this prevents clients from spoofing forwarded IP headers to evade limits.
+When enabled, Veyra uses the first address in `X-Forwarded-For` for IP quotas and rate limits. Leave it disabled when clients can reach Veyra directly; this prevents clients from spoofing forwarded IP headers to evade limits.
 
 If your infrastructure has multiple proxy hops, configure the edge proxy to overwrite/sanitize `X-Forwarded-For` before enabling this setting.
 
 
 ### Structured logs and admin status
 
-StreamDrop now emits JSON structured events such as:
+Veyra now emits JSON structured events such as:
 
 - `download.started`
 - `download.completed`
@@ -221,10 +221,10 @@ For production, put the admin endpoint behind HTTPS and preferably an additional
 
 The frontend now uses the real `/api/download/start` job flow instead of simulated progress. It polls the backend for actual bytes, speed, ETA, and completion status.
 
-When the server finishes a job, StreamDrop **does not automatically trigger the browser download**. The download card changes to **READY TO SAVE** and shows **Save to browser**. Tapping that action requests `/api/download/:id/file`, allowing the browser to handle the normal save/download behavior.
+When the server finishes a job, Veyra **does not automatically trigger the browser download**. The download card changes to **READY TO SAVE** and shows **Save to browser**. Tapping that action requests `/api/download/:id/file`, allowing the browser to handle the normal save/download behavior.
 
 This keeps the frontend clear about the two stages:
-1. StreamDrop prepares the authorized media and reports live progress.
+1. Veyra prepares the authorized media and reports live progress.
 2. The user explicitly saves the completed file through the browser.
 
 The backend remains responsible for temporary-file retention and cleanup. This frontend change does not add DRM bypass, private-access bypass, or unauthorized downloading.
@@ -244,11 +244,11 @@ The backend remains responsible for temporary-file retention and cleanup. This f
 
 
 ## Social video extraction
-StreamDrop uses an external `yt-dlp` executable for supported social/video URLs. Configure `YTDLP_BIN` when it is not on PATH. FFmpeg is required for formats that need video/audio merging. The extractor should only be used for content the user is authorized to download and does not bypass DRM. Supported sites depend on the installed yt-dlp version; common providers include YouTube, TikTok, Instagram, Facebook, X/Twitter, Reddit, Vimeo, Dailymotion, Twitch and Rumble.
+Veyra uses an external `yt-dlp` executable for supported social/video URLs. Configure `YTDLP_BIN` when it is not on PATH. FFmpeg is required for formats that need video/audio merging. The extractor should only be used for content the user is authorized to download and does not bypass DRM. Supported sites depend on the installed yt-dlp version; common providers include YouTube, TikTok, Instagram, Facebook, X/Twitter, Reddit, Vimeo, Dailymotion, Twitch and Rumble.
 
-## Launch checklist (StreamDrop v2)
+## Launch checklist (Veyra v2)
 
-StreamDrop's web app is ready to run as a Node/Express service, but the media features require two external command-line tools:
+Veyra's web app is ready to run as a Node/Express service, but the media features require two external command-line tools:
 
 - **Node.js 18+**
 - **yt-dlp** on PATH (or set `YTDLP_BIN`)
@@ -264,7 +264,7 @@ npm start
 
 Then open `http://localhost:3000`.
 
-`npm run doctor` does not download anything. It only checks Node.js, yt-dlp, FFmpeg, and StreamDrop's temporary directory before launch.
+`npm run doctor` does not download anything. It only checks Node.js, yt-dlp, FFmpeg, and Veyra's temporary directory before launch.
 
 ### Windows
 
@@ -281,7 +281,7 @@ After changing PATH/environment variables, open a new terminal and run `npm run 
 
 The v2 build includes live `/api/search`, `/api/discover`, and `/api/recommendations` endpoints, a dedicated `/watch` page, quality-aware downloads, a browser-side batch manager, and responsive mobile navigation. Search/discovery results are sourced through yt-dlp's supported search extraction and should be described as search/category discovery rather than guaranteed platform-wide ranking.
 
-Only download or stream media you are authorized to use. StreamDrop does not intentionally bypass DRM or authenticated access controls.
+Only download or stream media you are authorized to use. Veyra does not intentionally bypass DRM or authenticated access controls.
 
 
 ## Deploy to Render (free Docker deployment)
@@ -300,13 +300,13 @@ This project includes a Render-ready Docker deployment:
 3. If using the Blueprint, Render reads `render.yaml` automatically.
 4. If creating the service manually, select the repository, choose Docker, and use `Dockerfile` at the project root.
 5. Choose the **Free** instance type.
-6. Deploy. Render builds the Docker image and starts StreamDrop.
+6. Deploy. Render builds the Docker image and starts Veyra.
 7. Open the generated `https://<service-name>.onrender.com` address.
 
 The `/api/health` endpoint is configured as the Render health check.
 
 ### Free-tier limitations
 
-The Render free service can sleep after inactivity and has limited compute, storage, and bandwidth. StreamDrop also uses temporary server storage for completed downloads, so this deployment is intended for testing and early use rather than heavy production traffic. Temporary files are automatically cleaned according to `JOB_RETENTION_MS`.
+The Render free service can sleep after inactivity and has limited compute, storage, and bandwidth. Veyra also uses temporary server storage for completed downloads, so this deployment is intended for testing and early use rather than heavy production traffic. Temporary files are automatically cleaned according to `JOB_RETENTION_MS`.
 
 The service must only process media the user is authorized to download or stream. It does not intentionally bypass DRM, private access controls, or paywalls.

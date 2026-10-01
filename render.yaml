@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: streamdrop
+    name: veyra
     runtime: docker
     plan: free
     dockerfilePath: ./Dockerfile
@@ -17,8 +17,8 @@ services:
         value: /opt/yt-dlp/bin/yt-dlp
       - key: FFMPEG_BIN
         value: /usr/bin/ffmpeg
-      - key: STREAMDROP_TEMP_DIR
-        value: /tmp/streamdrop
+      - key: VEYRA_TEMP_DIR
+        value: /tmp/veyra
       - key: MAX_DOWNLOAD_BYTES
         value: "800000000"
       - key: JOB_RETENTION_MS

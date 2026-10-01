@@ -15,7 +15,7 @@ async function analyzeWithBackend(raw){
     panel.hidden=false;
     panel.className='validation-panel checking';
     document.getElementById('validationTitle').textContent='Checking link…';
-    document.getElementById('validationMessage').textContent='StreamDrop is validating the source and checking available media details.';
+    document.getElementById('validationMessage').textContent='Veyra is validating the source and checking available media details.';
     document.getElementById('validationDetails').innerHTML='';
   }
   try{
@@ -144,28 +144,26 @@ function isLikelyVideoResult(item){
 function escapeAttr(value){return escapeHtml(String(value||''));}
 function searchCard(item, index){
   const href=item.FirstURL;
-  const title=(item.Text||href).replace(/\s+[-|]\s+[^-]+$/,'').trim();
-  const domain=domainFromUrl(href);
-  const thumb=resultThumb(item);
-  const initials=(domain[0]||'V').toUpperCase();
+  const video=item.video||{};
+  const title=video.title||item.Text||href;
+  const domain=video.channel||video.platform||domainFromUrl(href);
+  const thumb=video.thumbnail||resultThumb(item);
   const selected=selectedVideoResults.has(href);
+  const duration=video.duration?formatDuration(video.duration):'';
+  const views=video.viewCount?formatCompactNumber(video.viewCount)+' views':'';
   return `<article class="search-result-card ${selected?'is-selected':''}" data-result-url="${escapeAttr(href)}">
-    <div class="search-result-thumb">${thumb?`<img src="${escapeAttr(thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">`:`<span>${escapeHtml(initials)}</span>`}<span class="video-badge">VIDEO</span></div>
+    <div class="search-result-thumb" data-preview-url="${escapeAttr(href)}" data-preview-title="${escapeAttr(title)}">${thumb?`<img src="${escapeAttr(thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">`:''}<span class="thumb-play">▶</span><span class="video-badge">VIDEO</span>${duration?`<span class="duration-badge">${escapeHtml(duration)}</span>`:''}</div>
     <div class="search-result-body">
-      <div class="search-result-top">
-        <label class="video-select"><input type="checkbox" data-video-select data-url="${escapeAttr(href)}" ${selected?'checked':''}><span></span></label>
-        <span class="search-result-number">${index+1}</span><span class="search-result-domain">${escapeHtml(domain)}</span>
-      </div>
+      <div class="search-result-top"><label class="video-select"><input type="checkbox" data-video-select data-url="${escapeAttr(href)}" ${selected?'checked':''}><span></span></label><span class="search-result-number">${index+1}</span><span class="search-result-domain">${escapeHtml(domain)}</span></div>
       <h3 title="${escapeAttr(title)}">${escapeHtml(title)}</h3>
-      <p>${escapeHtml(item.Text||'Video result')}</p>
-      <div class="search-result-actions">
-        <button class="result-action primary-mini" data-result-action="select" data-url="${escapeAttr(href)}">${selected?'Selected ✓':'Select'}</button>
-        <button class="result-action stream-action" data-result-action="watch" data-url="${escapeAttr(href)}">Watch ▶</button><button class="result-action use-link" data-result-action="download" data-url="${escapeAttr(href)}">Download ↓</button>
-        <button class="result-action" data-result-action="open" data-url="${escapeAttr(href)}">Open ↗</button>
-      </div>
+      <p>${escapeHtml([video.channel,views,video.uploadDate].filter(Boolean).join(' • ')||item.Text||'Video')}</p>
+      <div class="search-result-actions"><button class="result-action stream-action" data-result-action="watch" data-url="${escapeAttr(href)}">Watch ▶</button><button class="result-action primary-mini" data-result-action="download" data-url="${escapeAttr(href)}">Download ↓</button><button class="result-action" data-result-action="select" data-url="${escapeAttr(href)}">${selected?'Selected ✓':'Select'}</button><button class="result-action" data-result-action="open" data-url="${escapeAttr(href)}">Open ↗</button></div>
     </div>
   </article>`;
 }
+function formatDuration(n){n=Number(n)||0;const h=Math.floor(n/3600),m=Math.floor((n%3600)/60),s=Math.floor(n%60);return h?`${h}h ${m}m`:m?`${m}m ${s}s`:`${s}s`}
+function formatCompactNumber(n){n=Number(n)||0;return n>=1e9?(n/1e9).toFixed(1)+'B':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':String(n)}
+
 function updateBatchToolbar(){
   const bar=$('#batchToolbar'); if(!bar)return;
   const count=selectedVideoResults.size;
@@ -247,20 +245,47 @@ const streamPlayer = document.getElementById('streamPlayer');
 const playerTitle = document.getElementById('playerTitle');
 const playerQuality = document.getElementById('playerQuality');
 function closePlayer(){ if(!playerModal)return; streamPlayer.pause(); streamPlayer.removeAttribute('src'); streamPlayer.load(); playerModal.hidden=true; playerModal.setAttribute('aria-hidden','true'); }
-async function openPlayer(href,title='Video'){
+async function openPlayer(href,title='Video',quality='best'){
   if(!playerModal || !streamPlayer) return;
   playerTitle.textContent=title;
   playerQuality.textContent='Preparing stream…';
   playerModal.hidden=false; playerModal.setAttribute('aria-hidden','false');
-  const quality=(document.querySelector('#quality')?.value||'Original');
-  const qs=quality==='Original'?'best':quality;
-  streamPlayer.src=`/api/stream?url=${encodeURIComponent(href)}&quality=${encodeURIComponent(qs)}`;
+  streamPlayer.src=`/api/stream?url=${encodeURIComponent(href)}&quality=${encodeURIComponent(quality)}`;
   streamPlayer.load();
-  try { await streamPlayer.play(); } catch (_) { /* browser autoplay policy may require a tap */ }
-  playerQuality.textContent=quality==='Original'?'Auto quality':quality;
+  try { await streamPlayer.play(); } catch (_) {}
+  playerQuality.textContent=quality==='best'?'Auto quality':quality;
 }
 document.querySelectorAll('[data-close-player]').forEach(el=>el.addEventListener('click',closePlayer));
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closePlayer();});
+
+let qualityChooserUrl='';
+let qualityChooserTitle='Video';
+let qualityChooserData=null;
+async function openQualityChooser(href,title='Video'){
+  qualityChooserUrl=href; qualityChooserTitle=title; qualityChooserData=null;
+  const modal=$('#qualityChooserModal'); const grid=$('#qualityChooserGrid');
+  if(!modal||!grid)return;
+  modal.hidden=false; $('#qualityChooserTitle').textContent=title; $('#qualityChooserStatus').textContent='Checking available qualities…';
+  grid.innerHTML='<div class="quality-loading">Loading available qualities…</div>';
+  try{
+    const r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({url:href})});
+    const d=await r.json(); if(!r.ok||!d.supported)throw new Error(d.error||'Unable to read video qualities.');
+    qualityChooserData=d; const qs=d.qualities?.length?d.qualities:['Best available'];
+    $('#qualityChooserStatus').textContent=`${d.provider||'Source'} • ${qs.length} quality option${qs.length===1?'':'s'}`;
+    grid.innerHTML=qs.map((q,i)=>`<button type="button" class="quality-choice ${i===0?'active':''}" data-choice-quality="${escapeAttr(q)}"><strong>${escapeHtml(q)}</strong><span>${i===0?'Recommended':'Available from source'}</span></button>`).join('');
+  }catch(err){$('#qualityChooserStatus').textContent=err.message||'Could not load qualities.';grid.innerHTML='<div class="quality-loading">Try opening the video first or use another source.</div>';}
+}
+function closeQualityChooser(){const m=$('#qualityChooserModal');if(m)m.hidden=true;qualityChooserUrl='';qualityChooserData=null;}
+$('#qualityChooserGrid')?.addEventListener('click',e=>{const b=e.target.closest('[data-choice-quality]');if(!b)return;document.querySelectorAll('.quality-choice').forEach(x=>x.classList.remove('active'));b.classList.add('active');});
+$('#qualityChooserCancel')?.addEventListener('click',closeQualityChooser);
+$('#qualityChooserModal')?.addEventListener('click',e=>{if(e.target.matches('[data-close-quality]'))closeQualityChooser();});
+$('#qualityChooserDownload')?.addEventListener('click',async()=>{
+  const choice=document.querySelector('.quality-choice.active'); if(!choice||!qualityChooserUrl)return;
+  const quality=choice.dataset.choiceQuality; const d=qualityChooserData||{}; const chosenUrl=qualityChooserUrl; const chosenTitle=qualityChooserTitle; closeQualityChooser();
+  const card={id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),name:chosenTitle,format:'MP4',quality,url:chosenUrl,progress:0,state:'starting',bytes:0,totalBytes:null,speed:'Starting…',eta:'Calculating…',saved:false,saving:false,saveMessage:'',fileName:''};
+  activeDownloads.set(card.id,card); renderDownloads(); document.querySelector('#downloads')?.scrollIntoView({behavior:'smooth',block:'center'});
+  try{await startRealDownload(card.url,quality,'mp4',card);refreshUserQuota()}catch(err){card.state='error';card.error=friendlyDownloadError(err,null);card.speed='—';card.eta='—';renderDownloads();}
+});
 
 searchResults?.addEventListener('click',async e=>{
   const btn=e.target.closest('[data-result-action]');
@@ -271,12 +296,7 @@ searchResults?.addEventListener('click',async e=>{
   if(action==='open'){window.open(href,'_blank','noopener,noreferrer');return}
   if(action==='watch'){ window.location.href=`/watch?url=${encodeURIComponent(href)}`; return; }
   if(action==='stream'){ openPlayer(href, btn.closest('.search-result-card')?.querySelector('h3')?.textContent || 'Video'); return; }
-  if(action==='download' || action==='use'){
-    url.value=href;
-    setSource('link');
-    document.querySelector('#analyzeBtn').click();
-    return;
-  }
+  if(action==='download' || action==='use'){ openQualityChooser(href, btn.closest('.search-result-card')?.querySelector('h3')?.textContent || 'Video'); return; }
   if(action==='select'){
     const next=!selectedVideoResults.has(href);
     const checkbox=document.querySelector(`[data-video-select][data-url="${CSS.escape(href)}"]`);
@@ -745,9 +765,9 @@ function formatEta(seconds){
 }
 
 function readQuotaHeaders(response) {
-  const remaining = response?.headers?.get("X-StreamDrop-Quota-Remaining");
-  const limit = response?.headers?.get("X-StreamDrop-Quota-Limit");
-  const reset = response?.headers?.get("X-StreamDrop-Quota-Reset");
+  const remaining = response?.headers?.get("X-Veyra-Quota-Remaining");
+  const limit = response?.headers?.get("X-Veyra-Quota-Limit");
+  const reset = response?.headers?.get("X-Veyra-Quota-Reset");
   return {
     remaining: remaining == null ? null : Number(remaining),
     limit: limit == null ? null : Number(limit),
@@ -783,8 +803,8 @@ function friendlyDownloadError(error, response) {
   if (status === 429 || code.includes("QUOTA") || code.includes("RATE_LIMIT") || code.includes("CONCURRENCY")) {
     const retry = Number(error?.retryAfter || response?.headers?.get?.("Retry-After") || 0);
     return retry > 0
-      ? `StreamDrop is limiting requests right now. Please wait about ${retry} seconds and try again.`
-      : "StreamDrop is limiting requests right now. Please wait a moment and try again.";
+      ? `Veyra is limiting requests right now. Please wait about ${retry} seconds and try again.`
+      : "Veyra is limiting requests right now. Please wait a moment and try again.";
   }
   if (status === 413 || code === "REQUEST_TOO_LARGE") {
     return "This request is too large. Please send a smaller request.";
@@ -862,9 +882,15 @@ discoverGrid?.addEventListener('click',e=>{
   const watch=e.target.closest('[data-discover-watch]');
   if(watch){location.href=`/watch?url=${encodeURIComponent(watch.dataset.discoverWatch)}`;return;}
   const dl=e.target.closest('[data-discover-download]');
-  if(dl){url.value=dl.dataset.discoverDownload;setSource('link');document.getElementById('analyzeBtn')?.click();document.getElementById('download')?.scrollIntoView({behavior:'smooth'});return;}
+  if(dl){openQualityChooser(dl.dataset.discoverDownload,dl.closest('.discover-card')?.querySelector('h4')?.textContent||'Video');return;}
   const thumb=e.target.closest('[data-discover-stream]');
   if(thumb){openPlayer(thumb.dataset.discoverStream,thumb.closest('.discover-card')?.querySelector('h4')?.textContent||'Video');}
 });
+let previewTimer=null;
+let previewVideo=null;
+function stopPreview(el){if(previewTimer){clearTimeout(previewTimer);previewTimer=null} if(previewVideo){previewVideo.pause();previewVideo.remove();previewVideo=null} const img=el?.querySelector('img');if(img)img.style.display='block';}
+function startHoverPreview(el){if(!el)return;stopPreview(el);const src=el.dataset.previewUrl;if(!src)return;previewTimer=setTimeout(async()=>{const v=document.createElement('video');v.muted=true;v.playsInline=true;v.autoplay=true;v.preload='metadata';v.className='hover-preview-video';v.src=`/api/stream?url=${encodeURIComponent(src)}&quality=best`;v.addEventListener('error',()=>{v.remove();previewVideo=null});el.appendChild(v);const img=el.querySelector('img');if(img)img.style.display='none';previewVideo=v;try{await v.play()}catch(_){}} ,900)}
+searchResults?.addEventListener('pointerover',e=>{const el=e.target.closest('[data-preview-url]');if(el)startHoverPreview(el)});
+searchResults?.addEventListener('pointerout',e=>{const el=e.target.closest('[data-preview-url]');if(el&&!el.contains(e.relatedTarget))stopPreview(el)});
 loadDiscovery('home');
 (() => { const p=new URLSearchParams(location.search); const incoming=p.get('download'); if(!incoming)return; url.value=incoming; setSource('link'); setTimeout(async()=>{const data=await analyzeWithBackend(incoming); const qv=p.get('quality'); const q=$('#quality'); if(data&&qv&&q&&[...q.options].some(o=>o.value===qv)){q.value=qv;document.querySelectorAll('.quality-chip').forEach(x=>x.classList.toggle('active',x.dataset.quality===qv));$('#stickyQuality').textContent=qv;}},60); })();

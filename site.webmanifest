@@ -1,0 +1,10 @@
+{
+  "name":"Veyra",
+  "short_name":"Veyra",
+  "description":"Discover, watch and download authorized videos.",
+  "start_url":"/",
+  "display":"standalone",
+  "background_color":"#0b0d12",
+  "theme_color":"#0b0d12",
+  "icons":[]
+}

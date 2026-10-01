@@ -1,8 +1,8 @@
 {
-  "name": "streamdrop",
+  "name": "veyra",
   "version": "1.0.0",
   "private": true,
-  "description": "StreamDrop authorized media URL analyzer",
+  "description": "Veyra authorized media URL analyzer",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

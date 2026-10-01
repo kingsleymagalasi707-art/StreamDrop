@@ -12,7 +12,7 @@ const app = express();
 
 // Authentication integration point:
 // Set req.auth = { userId: verifiedSubject } here after validating your session/JWT.
-// StreamDrop intentionally does not accept X-StreamDrop-User-Id from the browser as identity proof.
+// Veyra intentionally does not accept X-Veyra-User-Id from the browser as identity proof.
 app.use((req, res, next) => {
   req.auth = req.auth || null;
   next();
@@ -160,7 +160,7 @@ function quotaUsage(map, prefix, limit) {
 
 
 fs.mkdirSync(TEMP_DIR, { recursive: true });
-console.log(`[StreamDrop] IP detection: ${TRUST_PROXY ? "trusted proxy headers enabled" : "direct socket IPs only"}`);
+console.log(`[Veyra] IP detection: ${TRUST_PROXY ? "trusted proxy headers enabled" : "direct socket IPs only"}`);
 
 app.use(express.json({ limit: "32kb" }));
 app.use(express.static(__dirname));
@@ -224,7 +224,7 @@ async function fetchWithSafeRedirects(startUrl, options = {}) {
         method: options.method || "HEAD",
         redirect: "manual",
         signal: controller.signal,
-        headers: { "User-Agent": "StreamDrop/1.0 URL analyzer" }
+        headers: { "User-Agent": "Veyra/1.0 URL analyzer" }
       });
       clearTimeout(timer);
 
@@ -361,9 +361,9 @@ function requestGuards(req, res, next) {
 }
 
 function setQuotaHeaders(res, { limit, remaining, resetAt }) {
-  res.setHeader("X-StreamDrop-Quota-Limit", String(limit));
-  res.setHeader("X-StreamDrop-Quota-Remaining", String(Math.max(0, remaining)));
-  res.setHeader("X-StreamDrop-Quota-Reset", String(Math.ceil(resetAt / 1000)));
+  res.setHeader("X-Veyra-Quota-Limit", String(limit));
+  res.setHeader("X-Veyra-Quota-Remaining", String(Math.max(0, remaining)));
+  res.setHeader("X-Veyra-Quota-Reset", String(Math.ceil(resetAt / 1000)));
 }
 
 function downloadQuotaGuard(req, res, next) {
@@ -486,7 +486,7 @@ async function startDownloadJob(job, rawUrl) {
       method: "GET",
       redirect: "manual",
       signal: controller.signal,
-      headers: { "User-Agent": "StreamDrop/1.0 downloader" }
+      headers: { "User-Agent": "Veyra/1.0 downloader" }
     });
     clearTimeout(timer);
 
@@ -763,10 +763,38 @@ app.get("/api/stream", async (req, res) => {
     const { stdout } = await runYtdlp(["--no-playlist", "--no-warnings", "--get-url", "--format", format, input.href], 60000);
     const mediaUrl = stdout.trim().split(/\r?\n/).find(Boolean);
     if (!mediaUrl || !/^https?:\/\//i.test(mediaUrl)) throw new Error("No playable stream was returned by the extractor.");
+
+    // Proxy the media instead of redirecting the browser. This avoids many cross-origin
+    // playback failures and lets the HTML5 player use byte-range seeking.
+    const headers = { "User-Agent": "Mozilla/5.0 Veyra/1.0" };
+    if (req.headers.range) headers.Range = req.headers.range;
+    const upstream = await fetch(mediaUrl, { headers, redirect: "follow" });
+    if (!upstream.ok && upstream.status !== 206) throw new Error(`Media source returned HTTP ${upstream.status}.`);
+
+    res.status(upstream.status);
+    const contentType = upstream.headers.get("content-type");
+    const contentLength = upstream.headers.get("content-length");
+    const contentRange = upstream.headers.get("content-range");
+    const acceptRanges = upstream.headers.get("accept-ranges");
+    if (contentType) res.setHeader("Content-Type", contentType);
+    if (contentLength) res.setHeader("Content-Length", contentLength);
+    if (contentRange) res.setHeader("Content-Range", contentRange);
+    res.setHeader("Accept-Ranges", acceptRanges || "bytes");
     res.setHeader("Cache-Control", "no-store");
-    res.redirect(302, mediaUrl);
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    if (upstream.body) {
+      const reader = upstream.body.getReader();
+      req.on("close", () => { try { reader.cancel(); } catch {} });
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!res.write(Buffer.from(value))) await new Promise(resolve => res.once("drain", resolve));
+      }
+    }
+    res.end();
   } catch (err) {
-    res.status(502).json({ error: err?.message || "Unable to prepare the stream." });
+    if (!res.headersSent) res.status(502).json({ error: err?.message || "Unable to prepare the stream." });
+    else res.destroy();
   }
 });
 
@@ -954,5 +982,5 @@ setInterval(sweepTempFiles, Math.max(60_000, Math.min(JOB_RETENTION_MS, 5 * 60_0
 sweepTempFiles();
 
 app.listen(PORT, HOST, () => {
-  console.log(`StreamDrop running on ${HOST}:${PORT}`);
+  console.log(`Veyra running on ${HOST}:${PORT}`);
 });
