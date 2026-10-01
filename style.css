@@ -349,3 +349,22 @@ body{background:radial-gradient(circle at 15% -10%,rgba(139,124,255,.14),transpa
 @media(max-width:1000px){.search-results-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.discover-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:720px){.category-tabs{top:57px}.category-search-tab{margin-left:0}.discover-section{padding:13px;border-radius:18px}.discover-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.search-results-grid{grid-template-columns:1fr}.search-results-head{display:block}.search-result-count{display:block;margin-top:5px}.load-more-results{min-height:52px}.discover-card h4{font-size:12px}}
 @media(max-width:440px){.discover-grid{grid-template-columns:1fr}.discover-section-head h3{font-size:19px}}
+
+/* Veyra 4.6 — full-width search results and cleaner video discovery */
+#searchResults.search-results{display:block!important;width:100%;max-width:none;margin-top:22px;text-align:left;grid-template-columns:none}
+#searchResults .search-results-shell{width:100%;max-width:none}
+#searchResults .search-results-head{display:flex;align-items:end;justify-content:space-between;gap:20px}
+#searchResults .search-results-grid{width:100%;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px}
+#searchResults .search-result-card{width:100%;min-width:0}
+#searchResults .search-result-thumb{min-height:0}
+#searchResults .search-result-body{min-width:0}
+#searchResults .search-result-body h3{overflow:hidden;text-overflow:ellipsis}
+#searchResults .search-result-actions .result-action{width:100%;border:1px solid var(--line);font-weight:800}
+#searchResults .search-result-actions .primary-mini{border-color:transparent}
+#searchResults .search-results-more{width:100%}
+@media(max-width:1000px){#searchResults .search-results-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){#searchResults .search-results-head{display:block}#searchResults .search-results-grid{grid-template-columns:1fr;gap:14px}#searchResults .search-result-card{display:grid!important;grid-template-columns:145px 1fr;align-items:stretch}#searchResults .search-result-thumb{border-radius:0!important;height:100%;min-height:120px}#searchResults .search-result-body{padding:12px}#searchResults .search-result-body h3{font-size:14px!important;min-height:0;margin:6px 0}#searchResults .search-result-actions{grid-template-columns:1fr 1fr!important}}
+
+/* Clear download states */
+.download-action-disabled{opacity:.58;cursor:not-allowed!important}
+.quality-note{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:12px;padding:12px 14px;border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.035);color:#9ea5b8;font-size:13px;line-height:1.45}.quality-note .watch-source-btn{flex:0 0 auto}

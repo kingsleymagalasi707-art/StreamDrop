@@ -293,9 +293,11 @@ async function openQualityChooser(href,title='Video'){
     const downloadBtn = $('#qualityChooserDownload');
     if(d.downloadAvailable===false){
       const isYouTube=String(d.provider||'').toLowerCase().includes('youtube') || Boolean(d.embedUrl);
-      $('#qualityChooserStatus').textContent=isYouTube ? 'Official playback available' : `${d.provider||'Source'} • download unavailable`;
-      grid.innerHTML=`<div class="quality-unavailable source-unavailable"><strong>${isYouTube?'Watch this video on its official player':"Download is not available from this source right now."}</strong><span>${escapeHtml(isYouTube ? 'Downloads are unavailable here right now. Use the official player to watch the video.' : (d.note||'This source did not expose a downloadable media stream to Veyra.'))}</span>${isYouTube?'<button type="button" class="watch-source-btn" data-watch-source>▶ Watch video</button>':''}</div>`;
-      if(downloadBtn){ downloadBtn.disabled=true; downloadBtn.textContent=isYouTube?'Download unavailable':'Download unavailable'; }
+      const qsFallback = ['Best available'];
+      $('#qualityChooserStatus').textContent = isYouTube ? 'Download • try available source formats' : `${d.provider||'Source'} • download attempt available`;
+      grid.innerHTML = qsFallback.map((q,i)=>`<button type="button" class="quality-choice active" data-choice-quality="${escapeAttr(q)}"><strong>${escapeHtml(q)}</strong><span>Veyra will try the best available format</span></button>`).join('') +
+        `<div class="quality-note"><span>${escapeHtml(isYouTube ? 'Veyra will attempt the server-side download. If the source blocks extraction, the download may fail; official playback remains available.' : (d.note||'Veyra will attempt to prepare a downloadable file from this source.'))}</span>${isYouTube?'<button type="button" class="watch-source-btn" data-watch-source>▶ Watch video</button>':''}</div>`;
+      if(downloadBtn){ downloadBtn.disabled=false; downloadBtn.innerHTML='Try download <span>↓</span>'; }
       return;
     }
     if(downloadBtn){ downloadBtn.disabled=false; downloadBtn.innerHTML='Download <span>↓</span>'; }
@@ -309,10 +311,7 @@ $('#qualityChooserGrid')?.addEventListener('click',e=>{const b=e.target.closest(
 $('#qualityChooserCancel')?.addEventListener('click',closeQualityChooser);
 $('#qualityChooserModal')?.addEventListener('click',e=>{if(e.target.matches('[data-close-quality]'))closeQualityChooser();});
 $('#qualityChooserDownload')?.addEventListener('click',async()=>{
-  const choice=document.querySelector('.quality-choice.active'); if(!choice||!qualityChooserUrl){
-    if(qualityChooserData?.downloadAvailable===false){ $('#qualityChooserStatus').textContent=qualityChooserData.note||'Download is unavailable for this source.'; }
-    return;
-  }
+  const choice=document.querySelector('.quality-choice.active'); if(!choice||!qualityChooserUrl)return;
   const quality=choice.dataset.choiceQuality; const d=qualityChooserData||{}; const chosenUrl=qualityChooserUrl; const chosenTitle=qualityChooserTitle; closeQualityChooser();
   const card={id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),name:chosenTitle,format:'MP4',quality,url:chosenUrl,progress:0,state:'starting',bytes:0,totalBytes:null,speed:'Starting…',eta:'Calculating…',saved:false,saving:false,saveMessage:'',fileName:''};
   activeDownloads.set(card.id,card); renderDownloads(); document.querySelector('#downloads')?.scrollIntoView({behavior:'smooth',block:'center'});
