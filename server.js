@@ -66,7 +66,7 @@ function getYouTubeId(raw) {
   return null;
 }
 function youtubeEmbedUrl(id) {
-  return id ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?autoplay=1&mute=1&playsinline=1&rel=0` : null;
+  return id ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?autoplay=0&controls=1&playsinline=1&rel=0&iv_load_policy=3&modestbranding=1` : null;
 }
 async function fetchYouTubeOEmbed(url) {
   const controller = new AbortController();
@@ -98,17 +98,18 @@ function runYtdlp(args, timeout = YTDLP_TIMEOUT_MS) {
 }
 function ytdlpInfoArgs(url) { return ["--dump-single-json", "--no-playlist", "--skip-download", "--no-warnings", url]; }
 
-const DISCOVERY_QUERIES = {
-  home: 'trending videos',
-  shorts: 'shorts',
-  new: 'new videos',
-  popular: 'popular videos',
-  music: 'music videos',
-  gaming: 'gaming',
-  sports: 'sports highlights',
-  movies: 'movie trailers',
-  news: 'latest news'
+const DISCOVERY_CONFIG = {
+  home:    { query: 'trending viral videos', prefix: 'ytsearch' },
+  shorts:  { query: 'shorts viral videos', prefix: 'ytsearch' },
+  new:     { query: 'latest videos', prefix: 'ytsearchdate' },
+  popular: { query: 'most viewed popular videos', prefix: 'ytsearch' },
+  music:   { query: 'official music videos', prefix: 'ytsearch' },
+  gaming:  { query: 'gaming gameplay highlights', prefix: 'ytsearch' },
+  sports:  { query: 'sports highlights', prefix: 'ytsearch' },
+  movies:  { query: 'movie and TV trailers clips', prefix: 'ytsearch' },
+  news:    { query: 'latest news video', prefix: 'ytsearchdate' }
 };
+const DISCOVERY_QUERIES = Object.fromEntries(Object.entries(DISCOVERY_CONFIG).map(([k,v]) => [k, v.query]));
 function normalizeVideoResult(v) {
   const url = v.webpage_url || v.original_url || (v.id ? `https://www.youtube.com/watch?v=${v.id}` : null);
   const ytId = url ? getYouTubeId(url) : null;
@@ -127,9 +128,14 @@ function normalizeVideoResult(v) {
     playback: ytId ? 'youtube-embed' : 'extractor'
   };
 }
-function ytdlpSearchArgs(query, limit=12) {
-  const n = Math.max(1, Math.min(Number(limit) || 12, 24));
-  return [`ytsearch${n}:${query}`, '--flat-playlist', '--dump-single-json', '--skip-download', '--no-warnings', '--no-playlist'];
+function ytdlpSearchArgs(query, limit=12, prefix='ytsearch', offset=0) {
+  // Paginate instead of imposing a small fixed UI result limit. The upstream
+  // search provider still determines the actual number of available results.
+  const n = Math.max(1, Math.min(Number(limit) || 12, 40));
+  const start = Math.max(1, Number(offset) + 1);
+  const end = start + n - 1;
+  const safePrefix = ['ytsearch', 'ytsearchdate'].includes(prefix) ? prefix : 'ytsearch';
+  return [`${safePrefix}all:${query}`, '--playlist-start', String(start), '--playlist-end', String(end), '--flat-playlist', '--dump-single-json', '--skip-download', '--no-warnings', '--no-playlist'];
 }
 
 const metrics = {
@@ -901,7 +907,7 @@ app.post("/api/analyze", async (req, res) => {
         note: canDownload
           ? `${provider} video detected. Choose a quality and download it if you are authorized to do so.`
           : (ytId
-            ? 'YouTube is allowing official playback, but its current anti-bot checks are blocking server-side extraction. Veyra will play this video through YouTube instead of bypassing that protection.'
+            ? 'Download is currently unavailable for this source. You can still watch it using the official YouTube player.'
             : `${provider} video detected, but this source did not expose downloadable media to Veyra.`)
       });
     }
@@ -976,12 +982,13 @@ app.get('/api/search', async (req, res) => {
   try {
     const q = String(req.query.q || '').trim();
     if (!q || q.length > 160) return res.status(400).json({ error: 'Enter a search query.' });
-    const limit = Math.min(Math.max(Number(req.query.limit) || 12, 1), 24);
-    const { stdout } = await runYtdlp(ytdlpSearchArgs(q, limit), YTDLP_TIMEOUT_MS);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 16, 1), 40);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+    const { stdout } = await runYtdlp(ytdlpSearchArgs(q, limit, 'ytsearch', offset), YTDLP_TIMEOUT_MS);
     const data = JSON.parse(stdout);
     const entries = Array.isArray(data.entries) ? data.entries : [];
     const videos = entries.filter(Boolean).map(normalizeVideoResult).filter(v => v.url);
-    res.json({ query: q, source: 'youtube', videos });
+    res.json({ query: q, source: 'youtube', videos, offset, limit, nextOffset: offset + videos.length, hasMore: videos.length >= limit });
   } catch (err) {
     res.status(502).json({ error: err?.message || 'Video search is unavailable.' });
   }
@@ -990,12 +997,14 @@ app.get('/api/search', async (req, res) => {
 app.get('/api/discover', async (req, res) => {
   try {
     const category = String(req.query.category || 'home').toLowerCase();
-    const q = String(req.query.q || DISCOVERY_QUERIES[category] || DISCOVERY_QUERIES.home).trim().slice(0, 160);
-    const limit = Math.min(Math.max(Number(req.query.limit) || 12, 1), 24);
-    const { stdout } = await runYtdlp(ytdlpSearchArgs(q, limit), YTDLP_TIMEOUT_MS);
+    const cfg = DISCOVERY_CONFIG[category] || DISCOVERY_CONFIG.home;
+    const q = String(req.query.q || cfg.query).trim().slice(0, 160);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 12, 1), 40);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+    const { stdout } = await runYtdlp(ytdlpSearchArgs(q, limit, cfg.prefix, offset), YTDLP_TIMEOUT_MS);
     const data = JSON.parse(stdout);
     const videos = (Array.isArray(data.entries) ? data.entries : []).filter(Boolean).map(normalizeVideoResult).filter(v => v.url);
-    res.json({ category, query: q, source: 'youtube', videos });
+    res.json({ category, query: q, source: 'youtube', videos, offset, limit, nextOffset: offset + videos.length, hasMore: videos.length >= limit });
   } catch (err) {
     res.status(502).json({ error: err?.message || 'Discovery is unavailable.' });
   }

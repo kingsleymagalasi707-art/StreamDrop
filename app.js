@@ -171,44 +171,65 @@ function updateBatchToolbar(){
   bar.hidden=count===0;
   $('#selectedCount').textContent=`${count} selected`;
 }
-function renderSearchResults(items, query){
+let searchState={query:'',offset:0,hasMore:false,loading:false,items:[]};
+function renderSearchResults(items, query, append=false){
   if(!searchResults)return;
-  const videoItems=items.filter(isLikelyVideoResult).slice(0,12);
-  if(!videoItems.length){
+  const videoItems=items.filter(isLikelyVideoResult);
+  if(!videoItems.length && !append){
     searchResults.hidden=false;
     searchResults.innerHTML=`<div class="search-empty"><strong>No video results found.</strong><span>Try a broader video search or paste a direct video URL.</span></div>`;
     updateBatchToolbar();
     return;
   }
   searchResults.hidden=false;
-  const mainItems=videoItems.slice(0,8);
-  const suggested=videoItems.slice(8,12);
-  const suggestionMarkup=suggested.length
-    ? `<div class="suggested-videos"><div class="suggested-videos-head"><div><span>SUGGESTED VIDEOS</span><strong>More videos you may like</strong></div><small>${suggested.length} more results</small></div>${suggested.map(searchCard).join('')}</div>`
-    : '';
-  searchResults.innerHTML=`<div class="search-results-head"><div><span>VIDEO RESULTS</span><h3>Videos for “${escapeHtml(query)}”</h3></div><small>${videoItems.length} video candidates • select multiple for batch download</small></div>${mainItems.map(searchCard).join('')}${suggestionMarkup}`;
+  if(!append){
+    searchResults.innerHTML=`<div class="search-results-shell"><div class="search-results-head"><div><span>VIDEO RESULTS</span><h3>Videos for “${escapeHtml(query)}”</h3></div><small class="search-result-count">${videoItems.length} results loaded</small></div><div class="search-results-grid"></div><div class="search-results-more"></div></div>`;
+  }
+  const grid=searchResults.querySelector('.search-results-grid');
+  if(!grid)return;
+  const existing=grid.querySelectorAll('.search-result-card').length;
+  grid.insertAdjacentHTML('beforeend',videoItems.map((item,i)=>searchCard(item,existing+i)).join(''));
+  const count=searchResults.querySelector('.search-result-count');
+  if(count)count.textContent=`${searchState.items.filter(isLikelyVideoResult).length} results loaded${searchState.hasMore?' • more available':''}`;
+  const more=searchResults.querySelector('.search-results-more');
+  if(more){
+    more.innerHTML=searchState.hasMore
+      ? `<button class="load-more-results" id="loadMoreSearch" type="button"><span>Load more videos</span><small>Keep exploring results for “${escapeHtml(query)}”</small></button>`
+      : `<div class="results-end"><strong>You’ve reached the end of the available results.</strong><span>Try another search to discover more videos.</span></div>`;
+  }
   updateBatchToolbar();
 }
-async function fetchSearchPreview(q){
-  if(searchResults){
+async function fetchSearchPreview(q, append=false){
+  if(searchState.loading)return;
+  if(!append){searchState={query:q,offset:0,hasMore:false,loading:false,items:[]};}
+  searchState.loading=true;
+  if(searchResults && !append){
     searchResults.hidden=false;
     searchResults.innerHTML='<div class="search-loading"><span class="search-spinner"></span><strong>Finding videos…</strong><small>Searching the video catalog.</small></div>';
+  } else if(searchResults){
+    const more=searchResults.querySelector('.search-results-more');
+    if(more)more.innerHTML='<div class="results-loading-more"><span class="search-spinner"></span> Loading more videos…</div>';
   }
   try{
-    const response=await fetch(`/api/search?q=${encodeURIComponent(q)}&limit=16`,{headers:{Accept:'application/json'}});
+    const response=await fetch(`/api/search?q=${encodeURIComponent(q)}&limit=16&offset=${searchState.offset}`,{headers:{Accept:'application/json'}});
     const data=await response.json();
     if(!response.ok) throw new Error(data.error||'Search failed');
-    const items=(data.videos||[]).map(v=>({
-      FirstURL:v.url, Text:v.title, Icon:v.thumbnail?{URL:v.thumbnail}:null,
-      video:v
-    }));
-    renderSearchResults(items,q);
+    const items=(data.videos||[]).map(v=>({FirstURL:v.url, Text:v.title, Icon:v.thumbnail?{URL:v.thumbnail}:null, video:v}));
+    searchState.items=append?searchState.items.concat(items):items;
+    searchState.offset=Number(data.nextOffset)||searchState.offset+items.length;
+    searchState.hasMore=Boolean(data.hasMore&&items.length);
+    renderSearchResults(items,q,append);
   }catch(err){
     if(searchResults){
       searchResults.hidden=false;
-      searchResults.innerHTML=`<div class="search-empty"><strong>Video search is unavailable right now.</strong><span>${escapeHtml(err.message||'Try again or paste a direct video URL.')}</span></div>`;
+      if(append){
+        const more=searchResults.querySelector('.search-results-more');
+        if(more)more.innerHTML=`<button class="load-more-results" id="loadMoreSearch" type="button"><span>Try loading more</span><small>${escapeHtml(err.message||'Search failed')}</small></button>`;
+      }else{
+        searchResults.innerHTML=`<div class="search-empty"><strong>Video search is unavailable right now.</strong><span>${escapeHtml(err.message||'Try again or paste a direct video URL.')}</span></div>`;
+      }
     }
-  }
+  }finally{searchState.loading=false;}
 }
 
 document.querySelectorAll('[data-suggestion]').forEach(btn=>{
@@ -272,8 +293,8 @@ async function openQualityChooser(href,title='Video'){
     const downloadBtn = $('#qualityChooserDownload');
     if(d.downloadAvailable===false){
       const isYouTube=String(d.provider||'').toLowerCase().includes('youtube') || Boolean(d.embedUrl);
-      $('#qualityChooserStatus').textContent=isYouTube ? 'YouTube • official playback available' : `${d.provider||'Source'} • download unavailable`;
-      grid.innerHTML=`<div class="quality-unavailable source-unavailable"><strong>${isYouTube?'Watch this video on its official player':"Download is not available from this source right now."}</strong><span>${escapeHtml(d.note||'This source did not expose a downloadable media stream to Veyra.')}</span>${isYouTube?'<button type="button" class="watch-source-btn" data-watch-source>▶ Watch video</button>':''}</div>`;
+      $('#qualityChooserStatus').textContent=isYouTube ? 'Official playback available' : `${d.provider||'Source'} • download unavailable`;
+      grid.innerHTML=`<div class="quality-unavailable source-unavailable"><strong>${isYouTube?'Watch this video on its official player':"Download is not available from this source right now."}</strong><span>${escapeHtml(isYouTube ? 'Downloads are unavailable here right now. Use the official player to watch the video.' : (d.note||'This source did not expose a downloadable media stream to Veyra.'))}</span>${isYouTube?'<button type="button" class="watch-source-btn" data-watch-source>▶ Watch video</button>':''}</div>`;
       if(downloadBtn){ downloadBtn.disabled=true; downloadBtn.textContent=isYouTube?'Download unavailable':'Download unavailable'; }
       return;
     }
@@ -836,10 +857,10 @@ document.addEventListener("DOMContentLoaded", () => {
 // Discovery category layer. These are intentionally generic starter suggestions;
 // live platform results can replace them when the backend/search provider is available.
 const discoveryCatalog = {
-  home: {label:'POPULAR NOW', title:'Popular videos', note:'Suggested videos to get you started', queries:['trending video','popular videos','viral videos','best videos']},
-  shorts: {label:'SHORTS', title:'Shorts', note:'Quick videos and vertical clips', queries:['YouTube Shorts','shorts videos','viral shorts','funny shorts']},
-  new: {label:'JUST IN', title:'New videos', note:'Fresh searches to discover', queries:['new videos','latest videos','new uploads','today videos']},
-  popular: {label:'TRENDING', title:'Popular', note:'What people are watching', queries:['trending videos','most popular videos','viral videos','trending now']},
+  home: {label:'DISCOVER', title:'Trending & viral videos', note:'Fresh discovery from video search', queries:['trending viral videos','viral videos','popular videos']},
+  shorts: {label:'SHORTS', title:'Shorts', note:'Short-form videos and vertical clips', queries:['shorts viral videos','YouTube Shorts','viral shorts']},
+  new: {label:'LATEST', title:'New videos', note:'Recently uploaded video results', queries:['latest videos','new uploads','today videos']},
+  popular: {label:'POPULAR', title:'Popular videos', note:'Popular video search results', queries:['most viewed popular videos','trending videos','viral videos']},
   music: {label:'MUSIC', title:'Music', note:'Music videos and performances', queries:['music videos','new music videos','live music','music performance']},
   gaming: {label:'GAMING', title:'Gaming', note:'Gameplay, highlights and creators', queries:['gaming videos','gaming highlights','gameplay','gaming news']},
   sports: {label:'SPORTS', title:'Sports', note:'Highlights, analysis and action', queries:['sports highlights','football highlights','basketball highlights','sports news']},
@@ -851,45 +872,72 @@ const discoverEyebrow=document.getElementById('discoverEyebrow');
 const discoverTitle=document.getElementById('discoverTitle');
 const discoverNote=document.getElementById('discoverNote');
 let activeDiscovery='home';
+let discoveryState={category:'home',query:'',offset:0,hasMore:false,loading:false,items:[]};
 function discoveryFallback(category){
-  const cfg=discoveryCatalog[category];
-  return cfg.queries.map((q,i)=>({url:'',title:q.charAt(0).toUpperCase()+q.slice(1),meta:'Search to find current videos',query:q,index:i}));
+  const cfg=discoveryCatalog[category] || discoveryCatalog.home;
+  return [{url:'',title:`No ${cfg.title.toLowerCase()} are available right now`,meta:'Try Refresh or search for a video directly',query:cfg.queries[0],index:0}];
 }
-function renderDiscovery(items, category){
+function renderDiscovery(items, category, append=false){
   if(!discoverGrid)return;
   const cfg=discoveryCatalog[category]||discoveryCatalog.home;
   discoverEyebrow.textContent=cfg.label; discoverTitle.textContent=cfg.title; discoverNote.textContent=cfg.note;
-  const list=items.length?items.slice(0,8):discoveryFallback(category);
-  discoverGrid.innerHTML=list.map((item,i)=>{
+  if(!items.length && !append){
+    discoverGrid.innerHTML='<div class="discover-empty">No live results are available for this category right now. Try Refresh or use Search.</div>';
+    return;
+  }
+  if(!append){discoverGrid.innerHTML='';}
+  const list=items.length?items:discoveryFallback(category);
+  const existing=discoverGrid.querySelectorAll('.discover-card').length;
+  discoverGrid.insertAdjacentHTML('beforeend',list.map((item,i)=>{
     const href=item.url||item.FirstURL||'';
-    const title=item.title||item.Text||cfg.queries[i%cfg.queries.length];
+    const title=item.title||item.Text||cfg.queries[(existing+i)%cfg.queries.length];
     const thumb=item.thumbnail||item.Icon?.URL||'';
-    return `<article class="discover-card">\n      <div class="discover-thumb" ${href?`data-discover-stream="${escapeAttr(href)}"`:''}>${thumb?`<img src="${escapeAttr(thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">`:'<span></span>'}<span class="discover-play">▶</span><span class="discover-badge">VIDEO</span></div>\n      <h4>${escapeHtml(title)}</h4><p>${escapeHtml(item.meta||item.domain||'Video suggestion')}</p>\n      <div class="discover-actions">${href?`<button type="button" data-discover-watch="${escapeAttr(href)}">Watch</button><button type="button" class="download-discover" data-discover-download="${escapeAttr(href)}">Download ↓</button>`:`<button type="button" data-discover-search="${escapeAttr(item.query||title)}">Find videos</button>`}</div>\n    </article>`;
-  }).join('');
+    return `<article class="discover-card">\n      <div class="discover-thumb" ${href?`data-discover-stream="${escapeAttr(href)}"`:''}>${thumb?`<img src="${escapeAttr(thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">`:'<span></span>'}<span class="discover-play">▶</span><span class="discover-badge">VIDEO</span></div>\n      <h4>${escapeHtml(title)}</h4><p>${escapeHtml(item.meta||item.domain||'Video')}</p>\n      <div class="discover-actions">${href?`<button type="button" data-discover-watch="${escapeAttr(href)}">Watch</button><button type="button" class="download-discover" data-discover-download="${escapeAttr(href)}">Download ↓</button>`:`<button type="button" data-discover-search="${escapeAttr(item.query||title)}">Find videos</button>`}</div>\n    </article>`;
+  }).join(''));
+  let more=document.getElementById('discoverMore');
+  if(!more){more=document.createElement('div');more.id='discoverMore';more.className='discover-more';discoverGrid.parentElement.appendChild(more);}
+  more.innerHTML=discoveryState.hasMore
+    ? `<button class="load-more-results load-more-discovery" type="button" id="loadMoreDiscovery"><span>Load more ${escapeHtml(cfg.title.toLowerCase())}</span><small>Keep exploring without a fixed result limit</small></button>`
+    : `<div class="results-end"><strong>More results are not available right now.</strong><span>Try Refresh or choose another category.</span></div>`;
 }
-async function loadDiscovery(category='home', customQuery=''){
+async function loadDiscovery(category='home', customQuery='', append=false){
+  if(category==='search'){
+    setSource('search'); document.getElementById('download')?.scrollIntoView({behavior:'smooth',block:'start'}); return;
+  }
+  if(discoveryState.loading)return;
   activeDiscovery=category;
   document.querySelectorAll('.category-tab').forEach(b=>b.classList.toggle('active',b.dataset.category===category));
   const cfg=discoveryCatalog[category]||discoveryCatalog.home;
-  discoverEyebrow.textContent=cfg.label; discoverTitle.textContent=cfg.title; discoverNote.textContent='Loading live suggestions…';
-  discoverGrid.innerHTML='<div class="discover-loading">Finding current videos…</div>';
+  const q=customQuery||cfg.queries[0];
+  if(!append){discoveryState={category,query:q,offset:0,hasMore:false,loading:false,items:[]};}
+  discoveryState.loading=true;
+  discoverEyebrow.textContent=cfg.label; discoverTitle.textContent=cfg.title; discoverNote.textContent=append?'Loading more…':'Loading live suggestions…';
+  if(!append){discoverGrid.innerHTML='<div class="discover-loading"><span class="search-spinner"></span> Finding current videos…</div>';document.getElementById('discoverMore')?.remove();}
   try{
-    const q=customQuery||cfg.queries[0];
-    const response=await fetch(`/api/discover?category=${encodeURIComponent(category)}&q=${encodeURIComponent(q)}&limit=16`,{headers:{Accept:'application/json'}});
+    const response=await fetch(`/api/discover?category=${encodeURIComponent(category)}&q=${encodeURIComponent(q)}&limit=16&offset=${discoveryState.offset}`,{headers:{Accept:'application/json'}});
     const data=await response.json();
-    if(!response.ok) throw new Error(data.error||'Discovery failed');
-    const items=(data.videos||[]).map(v=>({url:v.url,title:v.title,thumbnail:v.thumbnail,domain:v.platform,meta:[v.channel, v.viewCount!=null?`${v.viewCount.toLocaleString()} views`:null].filter(Boolean).join(' • ')||'Video',video:v}));
-    renderDiscovery(items,category);
-    discoverNote.textContent=`Live suggestions • ${items.length} videos`;
-  }catch(_){
-    renderDiscovery([],category);
-    discoverNote.textContent='Suggestions unavailable';
-  }
+    if(!response.ok)throw new Error(data.error||'Discovery failed');
+    const items=(data.videos||[]).map(v=>({url:v.url,title:v.title,thumbnail:v.thumbnail,domain:v.platform,meta:[v.channel,v.viewCount!=null?`${v.viewCount.toLocaleString()} views`:null].filter(Boolean).join(' • ')||'Video',video:v}));
+    discoveryState.items=append?discoveryState.items.concat(items):items;
+    discoveryState.offset=Number(data.nextOffset)||discoveryState.offset+items.length;
+    discoveryState.hasMore=Boolean(data.hasMore&&items.length);
+    renderDiscovery(items,category,append);
+    discoverNote.textContent=`${discoveryState.items.length} videos loaded${discoveryState.hasMore?' • more available':''}`;
+  }catch(err){
+    if(!append){renderDiscovery([],category);discoverNote.textContent='Live results unavailable — try Refresh';}
+    else {const more=document.getElementById('discoverMore');if(more)more.innerHTML=`<button class="load-more-results" id="loadMoreDiscovery"><span>Try loading more</span><small>${escapeHtml(err.message||'Discovery failed')}</small></button>`;}
+  }finally{discoveryState.loading=false;}
 }
 
 document.querySelectorAll('.category-tab').forEach(btn=>btn.addEventListener('click',()=>loadDiscovery(btn.dataset.category)));
 document.getElementById('refreshDiscover')?.addEventListener('click',()=>loadDiscovery(activeDiscovery));
-discoverGrid?.addEventListener('click',e=>{
+searchResults?.addEventListener('click',e=>{
+  const more=e.target.closest('#loadMoreSearch');
+  if(more){fetchSearchPreview(searchState.query,true);return;}
+});
+discoverGrid?.parentElement?.addEventListener('click',e=>{
+  const more=e.target.closest('#loadMoreDiscovery');
+  if(more){loadDiscovery(activeDiscovery,'',true);return;}
   const search=e.target.closest('[data-discover-search]');
   if(search){setSource('search');const input=document.getElementById('searchInput');input.value=search.dataset.discoverSearch;document.getElementById('searchBtn')?.click();document.getElementById('download')?.scrollIntoView({behavior:'smooth'});return;}
   const watch=e.target.closest('[data-discover-watch]');

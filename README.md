@@ -325,3 +325,11 @@ The Render Docker image also installs a current yt-dlp build and Deno, which yt-
 - UI download dialog now disables Download when the source does not expose a downloadable media stream.
 - Veyra localStorage keys are namespaced to the Veyra brand.
 - Render temp directory uses VEYRA_TEMP_DIR.
+
+
+## Veyra 4.5 UI/search update
+- Search and category results use pagination with a Load more flow instead of a fixed small card limit.
+- Category discovery can continue loading results while the upstream provider has more results.
+- Added a Search category shortcut.
+- Refined video-card layout, category tabs, loading states, and result controls for a more polished video-platform UI.
+- The result source still controls how many results are ultimately available; no web search provider can guarantee literally infinite results.
