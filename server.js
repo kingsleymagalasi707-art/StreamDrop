@@ -66,6 +66,18 @@ async function isDirectMediaUrl(rawUrl) {
     return isMediaContentType(type) || /attachment/i.test(disposition);
   } catch { return false; }
 }
+function getDownloadStrategy(raw) {
+  try {
+    const input = validateInput(raw);
+    const source = detectSource(input.href);
+    if (source.kind === 'platform') {
+      return { ...source, route: 'public-extractor', browserDelivery: true, fallback: 'official-player' };
+    }
+    return { ...source, route: 'direct-media-check', browserDelivery: true, fallback: 'source-page' };
+  } catch {
+    return { provider: 'Unknown source', hostname: '', kind: 'invalid', handler: 'none', route: 'reject', browserDelivery: false, fallback: 'none' };
+  }
+}
 function detectSource(raw) {
   try {
     const u = new URL(raw);
@@ -695,6 +707,22 @@ async function waitForJobCompletion(job, timeoutMs = DOWNLOAD_TIMEOUT_MS + 12000
   job.error = "The browser download timed out while preparing the media.";
   return job.status;
 }
+
+app.get('/api/download/strategy', async (req, res) => {
+  try {
+    const strategy = getDownloadStrategy(req.query?.url);
+    if (strategy.route === 'reject') return res.status(400).json(strategy);
+    // For direct sources, perform the media check so the UI can tell the user
+    // whether Veyra can hand the resource to the browser without extraction.
+    if (strategy.route === 'direct-media-check') {
+      strategy.directMedia = await isDirectMediaUrl(req.query?.url);
+      strategy.route = strategy.directMedia ? 'browser-direct' : 'source-page';
+    }
+    res.json(strategy);
+  } catch (err) {
+    res.status(400).json({ error: err?.message || 'Unable to determine download strategy.' });
+  }
+});
 
 // Browser-first download endpoint. The media is prepared server-side only as
 // needed, but the resulting file is handed directly to the browser as an
